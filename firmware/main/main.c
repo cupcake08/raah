@@ -1,5 +1,5 @@
 /*
- * Raah: glanceable bike/scooter navigation on an ESP32-S3 + SPI TFT.
+ * Raah: glanceable bike/scooter navigation on an ESP32-C3 (or -S3) + SPI TFT.
  *
  * The phone app routes the ride (or mirrors Google Maps) and streams turn-by-turn
  * state plus nearby road geometry over BLE. This task owns LVGL, applies incoming
@@ -485,6 +485,7 @@ void app_main(void)
     queue = xQueueCreate(16, sizeof(app_event_t));
     ESP_ERROR_CHECK(esp_pm_lock_create(ESP_PM_CPU_FREQ_MAX, 0, "ui", &cpu_lock));
     power_init();
-    xTaskCreatePinnedToCore(ui_task, "ui", 8192, NULL, 4, NULL, 1);
+    /* The last core: on the S3 the second one, clear of BLE on core 0; on the C3 its only one. */
+    xTaskCreatePinnedToCore(ui_task, "ui", 8192, NULL, 4, NULL, CONFIG_FREERTOS_NUMBER_OF_CORES - 1);
     ble_link_init();
 }

@@ -1,0 +1,2 @@
+# Edgehax S3 Pro / ESP32-S3-DevKitC-1 (N8/N16): 8 MB flash is the smallest variant.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y

@@ -1,8 +1,8 @@
 # Raah
 
-*Raah* (राह) means "the path". It is a glanceable navigation display for a bicycle or scooter, built from an ESP32-S3 and a 240×320 ILI9341 SPI TFT. Your Android phone does the routing and sends the device what to draw over Bluetooth LE.
+*Raah* (राह) means "the path". It is a glanceable navigation display for a bicycle or scooter, built from a Seeed XIAO ESP32C3 and a 240×320 ILI9341 SPI TFT. Your Android phone does the routing and sends the device what to draw over Bluetooth LE.
 
-**[Download the Android app](https://github.com/cupcake08/raah/releases/latest)** · firmware for the ESP32-S3 in [`firmware/`](firmware) · 3D-printable case in [`case/`](case)
+**[Download the Android app](https://github.com/cupcake08/raah/releases/latest)** · firmware for the ESP32-C3 (and the ESP32-S3 test board) in [`firmware/`](firmware) · 3D-printable case in [`case/`](case)
 
 ![screens](docs/screens/contact_sheet.png)
 
@@ -48,7 +48,7 @@ A round 412×412 layout of the map screen also exists (`docs/screens/round_*.png
 ## Map pipeline
 
 ```
-Android (Raah app)                                   ESP32-S3
+Android (Raah app)                                   ESP32-C3
 ───────────────────                                  ────────
 GPS fix + heading ─┐
 route (Valhalla motor_scooter │ Google Routes TWO_WHEELER)
@@ -64,30 +64,53 @@ OSM roads near the route (OpenFreeMap vector tiles / Overpass)
 
 ## Hardware
 
+The case in [`case/`](case) is built around a **Seeed XIAO ESP32C3**. Its own charger and 3.3 V regulator
+replace a separate TP4056 and LDO. The firmware also still builds for the ESP32-S3 board it was developed on
+(below).
+
 | Part | Notes |
 |---|---|
-| Edgehax S3 Pro (ESP32-S3-WROOM-1 N16R8), or an ESP32-S3-DevKitC-1 | Same header layout. PSRAM isn't used. |
+| Seeed XIAO ESP32C3, the standard one with an FPC antenna | The C3 has no antenna of its own: BLE needs the FPC plugged into the U.FL socket. |
 | 2.4"/2.8" ILI9341 240×320 SPI TFT | The common red-PCB module. An IPS version, if you can find one, is much easier to read in sunlight than TN. The TN module has one bad viewing side: from there, dark greys turn pale and colours shift (yellow looks cyan). If that is the side the rider looks from, mount it the other way up and set **Mirror X** and **Mirror Y** in menuconfig. |
-| 1S LiPo, 1000–2000 mAh | |
-| TP4056 charger (with protection) | |
-| Low-Iq 3.3 V LDO (ME6211 / HT7333 / MCP1700) | Feed the DevKit's **3V3** pin from it. The DevKit's own AMS1117 drops too much voltage and draws too much quiescent current for LiPo use. |
-| 2 × 1 MΩ resistors + 100 nF capacitor | Battery divider into GPIO1 (2 µA, against 21 µA for 2 × 100 kΩ). |
-| Handlebar push button | Optional: the DevKit BOOT button (GPIO0) works out of the box. |
-| LDR + 100 kΩ | Optional: auto-brightness. |
+| 523450 LiPo, 1500 mAh, with protection | On the XIAO's BAT pads. It charges from the XIAO's USB-C at about 380 mA. |
+| 2 × 1 MΩ resistors + 100 nF capacitor | Battery divider (2 µA). |
+| Two 6×6 tact switches, in parallel | The key. The firmware sees one button. |
+| GL5528 LDR + 10 kΩ | Auto-brightness. |
 
 ### Wiring (defaults in `idf.py menuconfig → Raah`)
 
+| XIAO pin | GPIO | Goes to |
+|---|---|---|
+| 3V3, GND | | Display VCC and GND, LDR, key, dividers |
+| D4 | 6 | Display SCK |
+| D5 | 7 | Display SDI (MOSI) |
+| D10 | 10 | Display CS |
+| D8 | 8 | Display DC |
+| D7 | 20 | Display RESET |
+| D6 | 21 | Display LED (PWM; the module's on-board transistor drives the LEDs) |
+| D3 | 5 | Key: both switches to GND. Only GPIO0–5 can wake the C3 from deep sleep. |
+| D2 | 4 | Battery: BAT+ → 1 MΩ → D2 → 1 MΩ → GND, 100 nF from D2 to GND (the capacitor feeds the ADC's sampling charge) |
+| D1 | 3 | LDR: 3V3 → GL5528 → D1 → 10 kΩ → GND |
+| D0, D9 | 2, 9 | Free: strapping pins |
+
+The display's SDO (MISO) and touch pins stay unconnected. The XIAO has no charge-status pin. D6 and D7 are
+the UART pins, so the console runs over the native USB port.
+
+### ESP32-S3 test board
+
+An Edgehax S3 Pro (ESP32-S3-WROOM-1 N16R8) or ESP32-S3-DevKitC-1, which share a header layout. PSRAM
+isn't used. Power it from a TP4056 charger (with protection) and a low-Iq 3.3 V LDO (ME6211 / HT7333 /
+MCP1700) into the **3V3** pin: the DevKit's own AMS1117 drops too much voltage and draws too much
+quiescent current for LiPo use.
+
 | ILI9341 pin | ESP32-S3 |
 |---|---|
-| VCC | 3V3 |
-| GND | GND |
 | CS | GPIO4 |
 | RESET | GPIO5 |
 | DC | GPIO6 |
 | SDI (MOSI) | GPIO7 |
 | SCK | GPIO15 |
-| LED | GPIO16 (PWM; the module's on-board transistor drives the LEDs) |
-| SDO (MISO), T_* touch pins | not connected |
+| LED | GPIO16 |
 
 CS to LED are six neighbouring pins on the left header, in the module's own order. GPIO9–14 stay free
 because the S3 Pro wires its microSD slot to GPIO10–14; GPIO35–37 belong to the N16R8's octal PSRAM, and
@@ -95,10 +118,10 @@ GPIO40–42 drive the S3 Pro's three LEDs.
 
 | Other | ESP32-S3 |
 |---|---|
-| Button → GND | GPIO0 (wakes from deep sleep) |
-| Battery + → 1M → **GPIO1** → 1M → GND, 100 nF from GPIO1 to GND | ADC1 (the capacitor feeds the ADC's sampling charge) |
+| Button → GND | GPIO0, the DevKit's BOOT button (wakes from deep sleep) |
+| Battery + → 1M → **GPIO1** → 1M → GND, 100 nF from GPIO1 to GND | ADC1 |
 | TP4056 CHRG (optional) | set `RAAH_PIN_CHARGING` |
-| LDR → 3V3, 100k → GND, junction → ADC pin (optional) | set `RAAH_PIN_LDR_ADC` |
+| LDR → 3V3, resistor → GND, junction → ADC pin (optional) | set `RAAH_PIN_LDR_ADC` |
 
 ## Battery life
 
@@ -107,9 +130,9 @@ These are estimates for an ILI9341 module and have not been measured yet. Measur
 | State | Approx. current |
 |---|---|
 | Backlight 100 % / 20 % | 60–80 mA / 12–16 mA |
-| ESP32-S3: BLE connected, DFS 40–160 MHz, auto light sleep | 4–8 mA |
+| ESP32-C3 or -S3: BLE connected, DFS 40–160 MHz, auto light sleep | 4–8 mA |
 | Map redraw at 1 Hz (full frame ≈ 30 ms of SPI at 40 MHz) | +3–5 mA |
-| Deep sleep (DevKit board) | ≈ 1 mA (power LED and USB bridge; under 50 µA on a bare module) |
+| Deep sleep | XIAO ESP32C3 about 45 µA, plus the sleeping panel and up to 0.3 mA through the LDR in daylight; ≈ 1 mA on the S3 DevKit (power LED and USB bridge) |
 
 With a 1500 mAh cell:
 
@@ -123,13 +146,17 @@ The backlight is the main cost. Press the button twice to cycle the backlight be
 * **Click:** on a dark or dimmed screen, wake it for 12 s. On a lit screen while navigating, flip between the map and the turn card.
 * **Double click:** cycle the backlight mode.
 * **Long press (2 s):** sleep. Press again to wake.
+* **Keep holding (about 10 s):** the screen goes dark and the device restarts into USB download mode instead of sleeping. The XIAO's BOOT and RESET buttons are sealed in the case, so this is the way back from firmware that won't take a flash. Flash it, or unplug the battery and USB to leave.
 
 ## Build
 
 ```bash
 . ~/esp/esp-idf-v6.0.1/export.sh
-cd firmware && idf.py build flash monitor
+cd firmware && idf.py build flash monitor    # the XIAO ESP32C3
 ```
+
+For the S3 test board, run `idf.py set-target esp32s3` once first. Each board's own settings (flash size,
+console, LVGL memory) are in `sdkconfig.defaults.<target>`; the pins default per target in `Kconfig.projbuild`.
 
 The Android app (JDK 17+):
 
@@ -175,7 +202,7 @@ case/      3D-printable enclosure and handlebar mount (Fusion 360 script, STEP/S
 
 ## Status
 
-* Runs on the Edgehax S3 Pro (ESP32-S3-WROOM-1 N16R8) with an ILI9341 panel; the Android app connects to it over BLE.
+* Runs on the Edgehax S3 Pro (ESP32-S3-WROOM-1 N16R8) with an ILI9341 panel; the Android app connects to it over BLE. The XIAO ESP32C3 build compiles but hasn't run on a board yet. The numbers below are from the S3.
 * Frame time on the chip (160 MHz, SPI 40 MHz) for the benchmark's riding frame: **61 ms**, down from 96 ms. Rides on the desk average 33–53 ms a frame. A standstill with GPS jitter costs 1.8 ms and draws no pixels. The firmware logs a frame-time line every 10 s while the screen changes (`ui: N frames …, backlight N%`), and `screen on` / `screen off`.
 * Where the 35 ms went, measured per object on the chip (`ui_bench_parts`):
 

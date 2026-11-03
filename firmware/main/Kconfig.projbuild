@@ -53,26 +53,34 @@ menu "Raah"
             int "Row offset"
             default 0
 
-        # Defaults: six neighbouring pins on the left header of the Edgehax S3 Pro (same header as the
+        # Defaults on the XIAO ESP32C3, the case's board: SCK, MOSI and CS on the C3's direct SPI pins
+        # (D4, D5, D10), DC on D8, RESET on D7 and the backlight on D6. GPIO2 and 9 are strapping pins and
+        # stay free. The README has the whole wiring table.
+        # On the Edgehax S3 Pro test board: six neighbouring pins on the left header (same header as the
         # ESP32-S3-DevKitC-1), in the ILI9341 module's own pin order. GPIO9-14 are avoided because the
         # S3 Pro wires its microSD slot to GPIO10-14, and GPIO35-37 belong to the N16R8's octal PSRAM.
         config RAAH_PIN_LCD_CS
             int "CS GPIO"
+            default 10 if IDF_TARGET_ESP32C3
             default 4
         config RAAH_PIN_LCD_RST
             int "RESET GPIO (-1 if tied to EN)"
+            default 20 if IDF_TARGET_ESP32C3
             default 5
         config RAAH_PIN_LCD_DC
             int "DC (RS) GPIO"
+            default 8 if IDF_TARGET_ESP32C3
             default 6
         config RAAH_PIN_LCD_MOSI
             int "MOSI (SDI) GPIO"
             default 7
         config RAAH_PIN_LCD_SCLK
             int "SCLK GPIO"
+            default 6 if IDF_TARGET_ESP32C3
             default 15
         config RAAH_PIN_LCD_BL
             int "Backlight GPIO"
+            default 21 if IDF_TARGET_ESP32C3
             default 16
         config RAAH_LCD_BL_ACTIVE_LOW
             bool "Backlight is active low"
@@ -88,13 +96,16 @@ menu "Raah"
 
     menu "Power"
         config RAAH_PIN_BUTTON
-            int "Button GPIO (must be an RTC GPIO 0-21 to wake from deep sleep)"
+            int "Button GPIO (must be able to wake the chip from deep sleep)"
+            default 5 if IDF_TARGET_ESP32C3
             default 0
             help
-                GPIO0 is the BOOT button on the DevKit, so it works with no extra wiring.
-                Wire a handlebar button between this pin and GND.
+                Wire the button between this pin and GND. Only GPIO0-5 wake the C3 from deep sleep, so the
+                XIAO uses GPIO5 (D3). On the S3 any RTC GPIO 0-21 does, and GPIO0 is the BOOT button on the
+                DevKit, so it works with no extra wiring.
         config RAAH_PIN_BATT_ADC
             int "Battery sense GPIO (ADC1, -1 to disable)"
+            default 4 if IDF_TARGET_ESP32C3
             default 1
         config RAAH_BATT_DIVIDER_X100
             int "Battery divider ratio x100 (2 equal resistors = 200)"
@@ -103,8 +114,11 @@ menu "Raah"
             int "Charger STAT/CHRG GPIO, active low (-1 to disable)"
             default -1
         config RAAH_PIN_LDR_ADC
-            int "Ambient light sensor GPIO (ADC1, LDR to 3V3 + 100k to GND, -1 to disable)"
+            int "Ambient light sensor GPIO (ADC1, LDR to 3V3 + resistor to GND, -1 to disable)"
+            default 3 if IDF_TARGET_ESP32C3
             default -1
+            help
+                The case puts a GL5528 behind the lens with 10k to GND, on GPIO3 (D1) of the XIAO.
         config RAAH_LIGHT_SLEEP
             bool "Automatic light sleep (disable while debugging over USB)"
             default y
