@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: a GPS simulator for riding a route at a desk. See DemoRide.kt. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.ACCESS_MOCK_LOCATION" tools:ignore="MockLocation,ProtectedPermissions" />
+
+    <application>
+        <receiver
+            android:name=".debug.DemoRide"
+            android:exported="true"
+            tools:ignore="ExportedReceiver">
+            <intent-filter>
+                <action android:name="app.raah.debug.FIX" />
+                <action android:name="app.raah.debug.GO" />
+                <action android:name="app.raah.debug.RIDE" />
+                <action android:name="app.raah.debug.STOP" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

@@ -1,0 +1,119 @@
+menu "Raah"
+
+    menu "Display"
+        choice RAAH_LCD_CONTROLLER
+            prompt "LCD controller"
+            default RAAH_LCD_ILI9341
+            config RAAH_LCD_ST7789
+                bool "ST7789 (2.0\"/2.4\" 240x320 IPS)"
+            config RAAH_LCD_ILI9341
+                bool "ILI9341 (2.4\"/2.8\" 240x320 TN/IPS)"
+        endchoice
+
+        config RAAH_LCD_H_RES
+            int "Horizontal resolution"
+            default 240
+        config RAAH_LCD_V_RES
+            int "Vertical resolution"
+            default 320
+            help
+                The UI is laid out for 240x320 portrait.
+        config RAAH_LCD_SPI_MHZ
+            int "SPI clock (MHz)"
+            range 10 80
+            default 40
+            help
+                40 MHz is safe on jumper wires. Short, soldered wiring usually runs at 80 MHz.
+        config RAAH_LCD_INVERT
+            bool "Invert colours (most IPS ST7789 panels need this)"
+            default y if RAAH_LCD_ST7789
+            default n
+        config RAAH_LCD_BGR
+            bool "Panel uses BGR element order"
+            default y if RAAH_LCD_ILI9341
+            default n
+        config RAAH_LCD_SWAP_XY
+            bool "Swap X and Y"
+            default y if RAAH_LCD_ILI9341
+            default n
+            help
+                The 2.8" red-PCB ILI9341 module scans as 320x240 landscape: without this, only 240 of its
+                320 columns get drawn and rows past 240 wrap to the top. Swapped, the UI is portrait with the
+                pin header at the bottom.
+        config RAAH_LCD_MIRROR_X
+            bool "Mirror X"
+            default n
+        config RAAH_LCD_MIRROR_Y
+            bool "Mirror Y"
+            default n
+        config RAAH_LCD_GAP_X
+            int "Column offset"
+            default 0
+        config RAAH_LCD_GAP_Y
+            int "Row offset"
+            default 0
+
+        # Defaults: six neighbouring pins on the left header of the Edgehax S3 Pro (same header as the
+        # ESP32-S3-DevKitC-1), in the ILI9341 module's own pin order. GPIO9-14 are avoided because the
+        # S3 Pro wires its microSD slot to GPIO10-14, and GPIO35-37 belong to the N16R8's octal PSRAM.
+        config RAAH_PIN_LCD_CS
+            int "CS GPIO"
+            default 4
+        config RAAH_PIN_LCD_RST
+            int "RESET GPIO (-1 if tied to EN)"
+            default 5
+        config RAAH_PIN_LCD_DC
+            int "DC (RS) GPIO"
+            default 6
+        config RAAH_PIN_LCD_MOSI
+            int "MOSI (SDI) GPIO"
+            default 7
+        config RAAH_PIN_LCD_SCLK
+            int "SCLK GPIO"
+            default 15
+        config RAAH_PIN_LCD_BL
+            int "Backlight GPIO"
+            default 16
+        config RAAH_LCD_BL_ACTIVE_LOW
+            bool "Backlight is active low"
+            default n
+    endmenu
+
+    config RAAH_BENCH
+        bool "Benchmark mode: time the map screen on the real panel instead of running the app"
+        default n
+        help
+            Runs bench/ui_bench.c at boot and prints per-frame pixels, transforms, line segments and
+            microseconds for each scenario, once with the SPI transfer and once without it (render alone).
+
+    menu "Power"
+        config RAAH_PIN_BUTTON
+            int "Button GPIO (must be an RTC GPIO 0-21 to wake from deep sleep)"
+            default 0
+            help
+                GPIO0 is the BOOT button on the DevKit, so it works with no extra wiring.
+                Wire a handlebar button between this pin and GND.
+        config RAAH_PIN_BATT_ADC
+            int "Battery sense GPIO (ADC1, -1 to disable)"
+            default 1
+        config RAAH_BATT_DIVIDER_X100
+            int "Battery divider ratio x100 (2 equal resistors = 200)"
+            default 200
+        config RAAH_PIN_CHARGING
+            int "Charger STAT/CHRG GPIO, active low (-1 to disable)"
+            default -1
+        config RAAH_PIN_LDR_ADC
+            int "Ambient light sensor GPIO (ADC1, LDR to 3V3 + 100k to GND, -1 to disable)"
+            default -1
+        config RAAH_LIGHT_SLEEP
+            bool "Automatic light sleep (disable while debugging over USB)"
+            default y
+        config RAAH_WAIT_SCREEN_S
+            int "Seconds the 'waiting for phone' screen stays lit"
+            default 60
+        config RAAH_DEEP_SLEEP_MIN
+            int "Minutes without a phone before deep sleep"
+            default 15
+    endmenu
+
+endmenu

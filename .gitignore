@@ -1,0 +1,18 @@
+# macOS
+.DS_Store
+
+# ESP-IDF: build output, generated config and downloaded components
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/managed_components/
+
+# Host simulator and benchmark builds
+build/
+build-*/
+out/
+out-*/
+
+# Fusion 360 autosaves and local caches
+case/**/*.f3d.bak
+case/**/~*
