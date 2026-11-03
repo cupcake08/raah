@@ -4,6 +4,13 @@
 
 **[Download the Android app](https://github.com/cupcake08/raah/releases/latest)** · firmware for the ESP32-C3 (and the ESP32-S3 test board) in [`firmware/`](firmware) · 3D-printable case in [`case/`](case)
 
+<p align="center">
+  <img src="case/renders/raah_turntable_hq.gif" width="49%" alt="Raah turning on its handlebar mount">
+  <img src="case/renders/raah_assembly.gif" width="49%" alt="Raah going together, part by part">
+</p>
+
+Videos, 720p: [assembly](case/renders/raah_assembly.mp4) · [product film](case/renders/raah_showcase.mp4) · [turntable](case/renders/raah_turntable_hq.mp4). Stills are in [`case/renders/hq/`](case/renders/hq).
+
 ![screens](docs/screens/contact_sheet.png)
 
 ## Modes
