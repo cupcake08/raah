@@ -25,10 +25,12 @@ The map is an extra screen; the card screens stay. A click on the button flips b
 The app uses the device's look: a black ground, the same Barlow typeface, and the same four signal colours.
 
 * **Home:** the device's link and battery, one large "Where to?" field, Home and Work tiles, and recent places with their distance from you. Most rides start with one tap.
-* **Search:** results appear as you type. A pause of 250 ms sends the query, and a newer keystroke cancels the older request. Search uses Photon (OpenStreetMap), biased to your position. Places within 60 km come first, nearest first, so the café in town beats a famous namesake 400 km away. A place mapped twice in OSM shows once. Each result shows an icon for its kind (café, food, fuel, transit and so on) and its distance. Typing coordinates such as `12.9719, 77.6412` gives a dropped pin.
-* **Share to Raah:** in Google Maps, tap Share on a place and pick Raah. The app follows the `maps.app.goo.gl` link to the place's pin and plans the ride. `geo:` links and text with coordinates also work.
+* **Search:** results appear as you type. A pause of 250 ms sends the query, and a newer keystroke cancels the older request. Raah asks the phone's own geocoder (Google, on phones with Play services) and Photon (OpenStreetMap) at once, both biased to your position, and lists Google's answers first. Places within 60 km come first, nearest first, so the café in town beats a famous namesake 400 km away. A place found by both shows once. Each result shows an icon for its kind (café, food, fuel, transit and so on) and its distance. Typing coordinates such as `12.9719, 77.6412` gives a dropped pin. When Raah can't find a place, one tap searches it in Google Maps.
+* **Share to Raah:** in Google Maps, tap Share on a place and pick Raah. The app follows the `maps.app.goo.gl` link; Google's links name the place but often carry no coordinates, so Raah looks up its name and address and plans the ride. `geo:` links, directions links and text with coordinates also work.
+* **Shortcuts:** long-press the Raah icon for Ride home, Ride to work and Search. Long-press a recent place to forget it.
 * **Route preview:** before you ride, the route is drawn over the streets around it, with the time, distance and arrival time. You can switch between scooter and bicycle routing and save the place as Home or Work.
 * **Ride:** shows what the device shows: the arrow, the distance and the street. The arrow turns yellow as the turn nears, and the whole card goes yellow at the turn. Below are time left, distance and arrival time. Ending the ride takes two taps, so a brushed glove doesn't end it.
+* **In a pocket:** a ride keeps going with the screen off or another app in front. It runs in a foreground service that holds the CPU awake while riding, and its notification shows the next turn and distance on the lock screen. Home asks once to lift the phone's battery limits for Raah.
 * **Settings:** the device's screen mode (always on, smart dim, smart off), brightness, units, clock, default vehicle, saved places and Google Maps mirroring.
 
 ## Design
@@ -39,7 +41,7 @@ The screen is read in a glance, in daylight, on a TN panel. Everything follows f
 * **One hero per screen.** The arrow and the distance are the largest things on the screen; the street name comes next; the trip figures and status are small.
 * **Names are never cut with "…".** A street name steps down a font size (26 → 22 → 18 px), then abbreviates street types ("Road" → "Rd", "toward" → "to"), then wraps to two lines before anything is dropped. Only text that fits none of those gets dots. The map card keeps its size: a long name gets a smaller distance (64 → 44 px) and a two-line name, and the longest names move under the arrow, across the full width of the card.
 * **The map is the hero of the map screen.** The turn card floats over the road already ridden, which the map would otherwise show behind the rider. The rider chevron sits just above the card, so nearly the whole map is road ahead.
-* **Repaint only what moves.** A map change repaints around the card, never inside it. Each strip draws only the roads that cross it. While gliding, a frame is drawn only when the view moves by 2 px or more.
+* **Repaint only what moves.** A map change repaints around the card, never inside it, and never under the status bar, which sits on a solid band with the map fading in below it. Each strip draws only the roads that cross it. While gliding, a frame is drawn only when the view moves by 2 px or more; with the screen dimmed, 6 px and at most 4 frames a second. A dark screen draws nothing, and is redrawn once before it lights.
 
 A round 412×412 layout of the map screen also exists (`docs/screens/round_*.png`) in case a round panel is ever used. The ILI9341 build does not need it.
 
@@ -174,15 +176,26 @@ case/      3D-printable enclosure and handlebar mount (Fusion 360 script, STEP/S
 ## Status
 
 * Runs on the Edgehax S3 Pro (ESP32-S3-WROOM-1 N16R8) with an ILI9341 panel; the Android app connects to it over BLE.
-* Frame time on the chip (160 MHz, SPI 40 MHz) for a full map frame with the map at an angle: about **100–110 ms**. A straight road takes a few glide frames a second; a bend takes up to about 9. A standstill with GPS jitter costs 1.7 ms and draws no pixels. The firmware logs a frame-time line every 10 s while the screen changes (`ui: N frames …`).
+* Frame time on the chip (160 MHz, SPI 40 MHz) for the benchmark's riding frame: **61 ms**, down from 96 ms. Rides on the desk average 33–53 ms a frame. A standstill with GPS jitter costs 1.8 ms and draws no pixels. The firmware logs a frame-time line every 10 s while the screen changes (`ui: N frames …, backlight N%`), and `screen on` / `screen off`.
+* Where the 35 ms went, measured per object on the chip (`ui_bench_parts`):
+
+  | Change | Riding frame |
+  |---|---|
+  | Before | 96 ms |
+  | Status bar on a solid band, so map frames skip its text (it cost 9.6 ms a frame) | 88 ms |
+  | Circle cache 4 → 16 slots: round caps, card corners and arrow strokes use about a dozen radii | 76 ms |
+  | 40-row strips instead of 20: each strip redraws every object crossing it (+19 KB internal RAM, 35 KB left) | 61 ms |
+
+  Repainting the card's four corners as squares instead of two side columns made frames slower: each area touching the card redraws all of it.
+* While cruising with the screen dimmed, the CPU draws for about 5–8 % of the time (14–21 frames per 10 s at 33–37 ms), against about 19 % before. Near a turn, at full brightness, the glide gets every frame it can (up to about 10 a second).
 * Rendering on both cores (LVGL's FreeRTOS draw units, `CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT=2`) was tried and dropped: the benchmark's riding frame went from 97 ms to 184 ms and free heap from 55 KB to 38 KB, and ride frames from about 100 ms to 140–185 ms. Each 20-row strip is too small to split between two threads.
-* Next for frame time: the fixed overlays. On the benchmark frame, the top fade with the status bar and the card's top rows cost about 35 ms even with the map off.
 * Ride tests with the phone and the device on the desk, driven by the simulator above:
   * **Ride:** the map arrives about 2 s after the route.
   * **Reroute:** the new map is shown within one transfer, and the rider follows it to arrival.
   * **Arrival:** the phone ends the ride a minute after arriving, so GPS and the link go quiet without a tap.
   * **Device reboot mid-ride:** the phone reconnects in about 6 s (mostly the 5 s supervision timeout) and resends the map.
   * **No battery fitted:** the device hides the battery figure and never warns or shuts down for a low battery.
+  * **In a pocket:** with the phone's screen off, Google Maps in front and Android forced into deep Doze, the ride carried on: the turn distance on the lock screen counted down and the device received a new map, so map downloads still get through.
 * Next: the power pass (regulator, backlight from VBAT).
 
 ## Sources

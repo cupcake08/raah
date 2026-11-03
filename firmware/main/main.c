@@ -291,9 +291,9 @@ static void perf_log(int64_t now)
     display_stats_t s;
     display_stats_take(&s);
     if (s.frames) {
-        ESP_LOGI(TAG, "ui: %lu frames in %lld s, %lu ms avg, %lu ms max, %llu kpx; heap %u KB min %u KB",
+        ESP_LOGI(TAG, "ui: %lu frames in %lld s, %lu ms avg, %lu ms max, %llu kpx, backlight %d%%; heap %u KB min %u KB",
                  (unsigned long)s.frames, (now - t_last) / 1000, (unsigned long)(s.busy_us / s.frames / 1000),
-                 (unsigned long)(s.max_us / 1000), (unsigned long long)(s.px / 1000),
+                 (unsigned long)(s.max_us / 1000), (unsigned long long)(s.px / 1000), display_get_backlight(),
                  (unsigned)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
                  (unsigned)(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024));
     }
@@ -307,8 +307,14 @@ static void policy(void)
     perf_log(now);
 
     int target = target_brightness(now), cur = display_get_backlight();
-    if (target != cur) display_set_backlight(target, target > cur ? 120 : 700);
+    if (target != cur) {
+        if (!target || !cur) ESP_LOGI(TAG, "screen %s", target ? "on" : "off");
+        esp_pm_lock_acquire(cpu_lock);      /* waking redraws the whole screen */
+        display_set_backlight(target, target > cur ? 120 : 700);
+        esp_pm_lock_release(cpu_lock);
+    }
     ui_set_animations(target > 0);
+    ui_set_calm(target > 0 && target < full_brightness());
 
     if (!app.connected && now - app.t_disconnected > CONFIG_RAAH_DEEP_SLEEP_MIN * 60000LL &&
         now - app.t_button > CONFIG_RAAH_DEEP_SLEEP_MIN * 60000LL) {
@@ -402,8 +408,11 @@ static void bench(void)
                                        .yield = bench_yield});
         printf("byte swap: %.2f cycles/pixel\n",
                (double)(display_swap_cycles - swap0) / (double)(display_px - px0 ? display_px - px0 : 1));
+        if (pass == 1) ui_bench_parts(&(ui_bench_env_t){.now = bench_now, .per_us = 1, .px = &display_px,
+                                                           .flushes = &display_flushes, .run = bench_run,
+                                                           .yield = bench_yield});
         if (pass > 0) {
-            printf("ms per strip, rows 0-19 first (all scenarios, per riding frame):");
+            printf("ms per %d-row strip, top first (all scenarios, per riding frame):", DISPLAY_LINES);
             for (int i = 0; i < DISPLAY_STRIPS; i++) printf(" %.1f", display_strip_us[i] / 60.0 / 1000.0);
             printf("\n");
         }

@@ -32,3 +32,6 @@ CONFIG_LV_OS_NONE=y
 CONFIG_LV_MEM_SIZE=65536
 CONFIG_LV_DEF_REFR_PERIOD=33
 CONFIG_LV_CACHE_DEF_SIZE=0
+# Round line caps, card corners and arrow strokes use about a dozen circle radii; with fewer cache slots
+# than that, every frame recomputed the anti-aliased circles (a riding frame took 4 ms longer).
+CONFIG_LV_DRAW_SW_CIRCLE_CACHE_SIZE=16

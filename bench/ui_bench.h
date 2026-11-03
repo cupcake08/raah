@@ -17,3 +17,6 @@ typedef struct {
 
 /* Builds the map screen from the demo map and prints per-frame work for each scenario. */
 void ui_bench_run(const ui_bench_env_t *env);
+
+/* After ui_bench_run: what the fixed overlays cost, by re-rendering their areas with parts hidden. */
+void ui_bench_parts(const ui_bench_env_t *env);
