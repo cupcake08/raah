@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The splash: the mark draws itself the way a ride starts. The start dot lands, the route runs up and
+  round the corner, and the arrow head snaps on. About 0.9 s; 288dp with the mark inside the 192dp circle.
+-->
+<animated-vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt">
+    <aapt:attr name="android:drawable">
+        <vector android:width="288dp" android:height="288dp" android:viewportWidth="108" android:viewportHeight="108">
+            <group android:name="dot" android:pivotX="41" android:pivotY="72" android:scaleX="0" android:scaleY="0">
+                <path android:fillColor="@color/raah_go" android:pathData="M41,65a7,7 0,1 1,0 14a7,7 0,1 1,0 -14z" />
+            </group>
+            <path android:name="route" android:strokeColor="@color/raah_go" android:strokeWidth="8"
+                android:strokeLineCap="round" android:strokeLineJoin="round" android:strokeAlpha="0"
+                android:trimPathEnd="0" android:pathData="M41,72 L41,53 Q41,43 51,43 L60,43" />
+            <group android:name="head" android:pivotX="58" android:pivotY="43" android:scaleX="0" android:scaleY="0"
+                android:translateX="-6">
+                <path android:fillColor="@color/raah_go" android:strokeColor="@color/raah_go" android:strokeWidth="3"
+                    android:strokeLineJoin="round" android:pathData="M58,31 L72,43 L58,55 Z" />
+            </group>
+        </vector>
+    </aapt:attr>
+    <target android:name="dot">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator android:propertyName="scaleX" android:duration="260" android:valueFrom="0" android:valueTo="1"
+                    android:valueType="floatType" android:interpolator="@android:anim/overshoot_interpolator" />
+                <objectAnimator android:propertyName="scaleY" android:duration="260" android:valueFrom="0" android:valueTo="1"
+                    android:valueType="floatType" android:interpolator="@android:anim/overshoot_interpolator" />
+            </set>
+        </aapt:attr>
+    </target>
+    <target android:name="route">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator android:propertyName="strokeAlpha" android:startOffset="160" android:duration="1"
+                    android:valueFrom="0" android:valueTo="1" android:valueType="floatType" />
+                <objectAnimator android:propertyName="trimPathEnd" android:startOffset="160" android:duration="440"
+                    android:valueFrom="0" android:valueTo="1" android:valueType="floatType"
+                    android:interpolator="@android:interpolator/fast_out_slow_in" />
+            </set>
+        </aapt:attr>
+    </target>
+    <target android:name="head">
+        <aapt:attr name="android:animation">
+            <set>
+                <objectAnimator android:propertyName="scaleX" android:startOffset="540" android:duration="300" android:valueFrom="0"
+                    android:valueTo="1" android:valueType="floatType" android:interpolator="@android:anim/overshoot_interpolator" />
+                <objectAnimator android:propertyName="scaleY" android:startOffset="540" android:duration="300" android:valueFrom="0"
+                    android:valueTo="1" android:valueType="floatType" android:interpolator="@android:anim/overshoot_interpolator" />
+                <objectAnimator android:propertyName="translateX" android:startOffset="540" android:duration="300" android:valueFrom="-6"
+                    android:valueTo="0" android:valueType="floatType" android:interpolator="@android:interpolator/fast_out_slow_in" />
+            </set>
+        </aapt:attr>
+    </target>
+</animated-vector>

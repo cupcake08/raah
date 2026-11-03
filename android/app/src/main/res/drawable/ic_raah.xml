@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A turn arrow: the same mark the device shows for a right turn. -->
+<!-- The mark, cropped to its own size: the notification icon. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:fillColor="#FF2EE59D"
-        android:pathData="M7,21V12a4,4 0,0 1,4 -4h5V4.5L21.5,10 16,15.5V12h-5v9z" />
+    android:width="24dp" android:height="24dp" android:viewportWidth="54" android:viewportHeight="54">
+    <group android:translateX="-27" android:translateY="-27">
+    <path android:fillColor="#FFFFFFFF" android:pathData="M41,65a7,7 0,1 1,0 14a7,7 0,1 1,0 -14z" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="8" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M41,72 L41,53 Q41,43 51,43 L60,43" />
+    <path android:fillColor="#FFFFFFFF" android:strokeColor="#FFFFFFFF" android:strokeWidth="3" android:strokeLineJoin="round"
+        android:pathData="M58,31 L72,43 L58,55 Z" />
+    </group>
 </vector>

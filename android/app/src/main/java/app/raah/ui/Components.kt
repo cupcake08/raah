@@ -3,7 +3,9 @@ package app.raah.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -55,6 +57,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import app.raah.proto.NavProtocol
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
@@ -104,11 +109,13 @@ fun RoundIcon(icon: ImageVector, tint: Color = Raah.Text2, bg: Color = Raah.Surf
 }
 
 /** A list row: icon, two lines, and something on the right. Tall enough to hit with a glove. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PlaceRow(icon: ImageVector, title: String, detail: String?, trailing: String? = null, tint: Color = Raah.Text2,
-             onClick: () -> Unit) {
+             onLongClick: (() -> Unit)? = null, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick)
+        Modifier.fillMaxWidth().heightIn(min = 64.dp).clip(RoundedCornerShape(14.dp))
+            .combinedClickable(onLongClick = onLongClick, onClick = onClick)
             .padding(horizontal = 4.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -268,4 +275,11 @@ fun fmtClock(minOfDay: Int, use24h: Boolean): String {
     val h = (minOfDay / 60) % 24
     val m = minOfDay % 60
     return if (use24h) "%02d:%02d".format(h, m) else "%d:%02d %s".format((h + 11) % 12 + 1, m, if (h < 12) "am" else "pm")
+}
+
+/** Google Maps' own arrow (an alpha mask, [NavProtocol.ICON_PX] square) as an image to tint. */
+fun maneuverMask(a8: ByteArray): ImageBitmap {
+    val px = NavProtocol.ICON_PX
+    return android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ALPHA_8)
+        .apply { copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(a8)) }.asImageBitmap()
 }

@@ -9,6 +9,9 @@ import app.raah.route.Photon
 import app.raah.route.PlaceKind
 import app.raah.route.SharedPlace
 import app.raah.route.Place
+import app.raah.route.Route
+import app.raah.route.RouteTracker
+import app.raah.route.Step
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -125,5 +128,71 @@ class ParsingTest {
         assertEquals(SharedPlace.Query("Cubbon Park"), SharedPlace.parse("Cubbon Park", null))
         val pin = SharedPlace.parse("Meet here: 12.97190, 77.64120", null) as SharedPlace.At
         assertEquals(77.6412, pin.place.pos.lon, 1e-9)
+    }
+
+    @Test
+    fun googleMapsLinkShapes() {
+        // A searched-for spot.
+        val s = SharedPlace.mapsUrl("https://www.google.com/maps/search/16.064556,+108.231402?entry=tts&g_ep=Eg", null)!!
+        assertEquals(16.064556, s.pos.lat, 1e-9)
+        assertEquals(108.231402, s.pos.lon, 1e-9)
+        // A dropped pin: its "name" is its coordinates in degrees, which helps nobody.
+        val dms = SharedPlace.mapsUrl("https://www.google.com/maps/place/22%C2%B025'28.4%22N+114%C2%B012'48.7%22E/@22.4245851,114.2134086,80m/data=!3m1!1e3!4m4!3m3!8m2!3d22.4245404!4d114.2135349", null)!!
+        assertEquals("Dropped pin", dms.name)
+        // An address without coordinates: search for it.
+        val addr = "https://www.google.com/maps/place/Rev.+E.J.+Motau+st,+Kudube+Unit+2,+Temba/data=!4m2!3m1!1s0x1ebfc06ee282e2a9:0x843802deff256922!18m1!1e1"
+        assertEquals(null, SharedPlace.mapsUrl(addr, null))
+        assertEquals(SharedPlace.Query("Rev. E.J. Motau st, Kudube Unit 2, Temba"), SharedPlace.named(addr, "Somewhere"))
+        assertEquals(SharedPlace.Query("Somewhere"), SharedPlace.named("https://maps.app.goo.gl/AbCdEf123", "Somewhere"))
+        // Google Maps puts the floor before the shop's name.
+        assertEquals("Starbucks - Sector 49" to "Ground Floor, Vatika Business Park, Sohna Rd",
+            SharedPlace.nameAndAddress("Ground Floor, Starbucks - Sector 49, Vatika Business Park, Sohna Rd"))
+        assertEquals("Fun City - Ambience Mall" to "Gurgaon", SharedPlace.nameAndAddress("Fun City - Ambience Mall, Gurgaon"))
+        // A shared route: the destination by name, at its own coordinates rather than the map's centre.
+        val shared = SharedPlace.parse("Shared route\nFrom My location to Ambience Mall via NH 48.\nhttps://maps.app.goo.gl/XyZ12345", null)
+        assertEquals(SharedPlace.Link("https://maps.app.goo.gl/XyZ12345", "Ambience Mall"), shared)
+        val dir = SharedPlace.mapsUrl("https://www.google.com/maps/dir/28.39,76.97/Ambience+Mall,+Gurugram/@28.45,77.03,12z/data=!3m1!4b1!4m9!4m8!1m1!4e1!1m5!1m1!1s0x0:0x0!2m2!1d77.09696!2d28.50487", "Ambience Mall")!!
+        assertEquals("Ambience Mall", dir.name)
+        assertEquals(28.50487, dir.pos.lat, 1e-9)
+        assertEquals(77.09696, dir.pos.lon, 1e-9)
+    }
+
+    @Test
+    fun googleFirstThenOsm() {
+        val near = LatLon(12.9719, 77.6412)
+        val google = listOf(Place("Toit Brewpub", "100 Feet Rd, Indiranagar", LatLon(12.97915, 77.64080)),
+            Place("Toit", "Lisbon", LatLon(38.72, -9.14)))
+        val osm = listOf(Place("Toit", "Indiranagar", LatLon(12.97920, 77.64085), PlaceKind.FOOD),
+            Place("Toit ORR East", "Bellandur", LatLon(12.93, 77.69), PlaceKind.FOOD))
+        val merged = Photon.merge(google, osm, near)
+        // Google's Toit and OSM's are one place: Google's name and address, OSM's icon. The one in Lisbon only
+        // shows when nothing nearby matches.
+        assertEquals(listOf("Toit Brewpub", "Toit ORR East"), merged.map { it.name })
+        assertEquals(PlaceKind.FOOD, merged[0].kind)
+        assertEquals(listOf("Lisbon"), Photon.merge(google.drop(1), emptyList(), near).map { it.detail })
+    }
+
+    @Test
+    fun photonNoise() {
+        assertEquals(true, Photon.noise("railway", "subway", "Namma Metro - Reach 1"))
+        assertEquals(true, Photon.noise("highway", "bus_stop", "KIA8: Electronic City => Kempegowda International Airport"))
+        assertEquals(false, Photon.noise("railway", "station", "Indiranagar"))
+    }
+
+    @Test
+    fun rideStartsWithTheFirstTurn() {
+        // 11 points 100 m apart heading north; depart, turn right at the 5th, arrive at the end.
+        val shape = (0..10).map { LatLon(28.40 + it * 0.0009, 76.97) }
+        val steps = listOf(
+            Step(Maneuver.STRAIGHT, 0, "Head north", "Sohna Road", 0, 500.0, 60.0),
+            Step(Maneuver.RIGHT, 0, "Turn right", "Golf Course Road", 5, 500.0, 60.0),
+            Step(Maneuver.ARRIVE, 0, "Arrive", "", 10, 0.0, 0.0),
+        )
+        val tracker = RouteTracker(Route(shape, steps, 1000.0, 120.0))
+        // Waiting 15 m behind the start, as a ride often begins: the right turn is next, not the arrival.
+        val p = tracker.update(LatLon(28.40 - 0.000135, 76.97), 20f)
+        assertEquals(1, p.stepIdx)
+        assertEquals(500.0, p.distToTurnM, 15.0)
+        assertEquals(120.0, p.timeLeftS, 1.0)
     }
 }

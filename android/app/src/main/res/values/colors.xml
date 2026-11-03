@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Raah.Go in the app: the green of the device's arrows. -->
+    <color name="raah_go">#FF1FF08A</color>
+</resources>

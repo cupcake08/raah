@@ -26,6 +26,7 @@ import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.LocationOff
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.ScreenLockPortrait
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.Work
@@ -36,6 +37,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.foundation.Image
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -58,13 +62,16 @@ fun HomeScreen(
     imperial: Boolean,
     locationOn: Boolean,
     mirrorAllowed: Boolean,
+    pocketReady: Boolean,
     onSearch: () -> Unit,
     onPlace: (Place) -> Unit,
+    onForget: (Place) -> Unit,
     onSetSaved: (Saved) -> Unit,
     onSettings: () -> Unit,
     onConnect: () -> Unit,
     onLocationSettings: () -> Unit,
     onGrantMirror: () -> Unit,
+    onAllowBackground: () -> Unit,
 ) {
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
@@ -96,7 +103,13 @@ fun HomeScreen(
                 "Raah needs it to find routes and follow the ride.", "Turn on", onLocationSettings)
         }
 
-        if (ui.mirroring && ui.nav != null) MirrorCard(ui.nav, imperial)
+        if (!pocketReady) {
+            Notice(Icons.Rounded.ScreenLockPortrait, Raah.Near, "Ride with the phone in your pocket",
+                "Lift the phone's battery limits for Raah, so it keeps guiding with the screen off or another app open.",
+                "Allow", onAllowBackground)
+        }
+
+        if (ui.mirroring && ui.nav != null) MirrorCard(ui.nav, ui.mirrorIcon, imperial)
 
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             SavedTile(Modifier.weight(1f), Icons.Rounded.Home, "Home", ui.home, { onPlace(it) }) { onSetSaved(Saved.HOME) }
@@ -108,7 +121,8 @@ fun HomeScreen(
             Slab(padding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)) {
                 ui.recent.forEach { p ->
                     PlaceRow(Icons.Rounded.History, p.name, p.detail,
-                        trailing = ui.lastFix?.let { fmtDistance(Geo.distance(it, p.pos), imperial) }) { onPlace(p) }
+                        trailing = ui.lastFix?.let { fmtDistance(Geo.distance(it, p.pos), imperial) },
+                        onLongClick = { onForget(p) }) { onPlace(p) }
                 }
             }
         }
@@ -119,7 +133,7 @@ fun HomeScreen(
         }
 
         Spacer(Modifier.height(8.dp))
-        Text("Routing © Valhalla / FOSSGIS · Search © Photon · Maps © OpenStreetMap contributors, OpenFreeMap",
+        Text("Routing © Valhalla / FOSSGIS · Search © Google, Photon · Maps © OpenStreetMap contributors, OpenFreeMap",
             Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.bodySmall, color = Raah.Text3)
         Spacer(Modifier.height(16.dp))
     }
@@ -175,12 +189,15 @@ private fun SavedTile(modifier: Modifier, icon: ImageVector, label: String, plac
 }
 
 @Composable
-private fun MirrorCard(nav: NavProtocol.NavState, imperial: Boolean) {
+private fun MirrorCard(nav: NavProtocol.NavState, icon: ByteArray?, imperial: Boolean) {
     Slab {
         Text("FROM GOOGLE MAPS", style = MaterialTheme.typography.labelMedium, color = Raah.Link)
         Spacer(Modifier.height(10.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(nav.maneuver.icon(), null, Modifier.size(44.dp), tint = Raah.Go)
+            // Google's own arrow when it sent one, as on the device: its words don't always say which way.
+            val mask = remember(icon) { icon?.let(::maneuverMask) }
+            if (mask != null) Image(mask, null, Modifier.size(44.dp), colorFilter = ColorFilter.tint(Raah.Go))
+            else Icon(nav.maneuver.icon(), null, Modifier.size(44.dp), tint = Raah.Go)
             Spacer(Modifier.width(14.dp))
             Column {
                 Text(nav.distToTurnM?.let { fmtDistance(it.toDouble(), imperial) } ?: "", style = MaterialTheme.typography.headlineMedium)

@@ -1,10 +1,14 @@
 package app.raah.ui
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.location.LocationManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -20,11 +24,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.location.LocationManagerCompat
 import app.raah.BuildConfig
 import app.raah.RaahApp
@@ -64,13 +70,23 @@ class MainActivity : ComponentActivity() {
     /** The phone's Location switch and the notification-access grant, re-read whenever the user comes back. */
     private val locationOn = mutableStateOf(true)
     private val mirrorAllowed = mutableStateOf(false)
+    /** Battery limits lifted, so the phone doesn't stop a ride that runs in a pocket. */
+    private val pocketReady = mutableStateOf(true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Let the mark finish drawing itself, then grow and fade it into the app.
+        val splash = installSplashScreen()
+        val shownAt = SystemClock.uptimeMillis()
+        splash.setKeepOnScreenCondition { SystemClock.uptimeMillis() - shownAt < SPLASH_MS }
+        splash.setOnExitAnimationListener { s ->
+            s.iconView.animate().scaleX(1.3f).scaleY(1.3f).alpha(0f).setDuration(220).start()
+            s.view.animate().alpha(0f).setStartDelay(60).setDuration(240).withEndAction { s.remove() }.start()
+        }
         enableEdgeToEdge(SystemBarStyle.dark(android.graphics.Color.BLACK), SystemBarStyle.dark(android.graphics.Color.BLACK))
         super.onCreate(savedInstanceState)
         val engine = RaahApp.engine(this)
         request.launch(permissions)
-        handleShare(intent)
+        handleIntent(intent)
         setContent {
             RaahTheme {
                 Surface(Modifier.fillMaxSize(), color = Raah.Bg) { App(engine) }
@@ -80,24 +96,39 @@ class MainActivity : ComponentActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleShare(intent)
+        handleIntent(intent)
     }
 
     override fun onResume() {
         super.onResume()
         locationOn.value = getSystemService(LocationManager::class.java)?.let { LocationManagerCompat.isLocationEnabled(it) } ?: false
         mirrorAllowed.value = NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+        pocketReady.value = getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(packageName) ?: true
     }
 
-    /** A place shared from another app (Google Maps' Share, a geo: link): plan it, or search for its name. */
-    private fun handleShare(intent: Intent?) {
+    /**
+     * A launcher shortcut (ride home, ride to work, search), or a place shared from another app (Google Maps'
+     * Share, a geo: link): plan it, or search for its name or address.
+     */
+    private fun handleIntent(intent: Intent?) {
         val engine = RaahApp.engine(this)
+        if (intent?.action == Shortcuts.ACTION) {
+            when (intent.getStringExtra(Shortcuts.EXTRA_TO)) {
+                Shortcuts.HOME -> engine.ui.value.home?.let(engine::navigateTo)
+                Shortcuts.WORK -> engine.ui.value.work?.let(engine::navigateTo)
+                else -> page.value = Page.Search()
+            }
+            return
+        }
         when (val s = SharedPlace.from(intent ?: return) ?: return) {
             is SharedPlace.At -> engine.plan(s.place)
             is SharedPlace.Query -> page.value = Page.Search(query = s.text)
             is SharedPlace.Link -> lifecycleScope.launch {
-                val place = withContext(Dispatchers.IO) { runCatching { SharedPlace.resolve(s) }.getOrNull() }
-                if (place != null) engine.plan(place) else page.value = Page.Search(query = s.name.orEmpty())
+                when (val r = withContext(Dispatchers.IO) { runCatching { SharedPlace.resolve(s) }.getOrNull() }) {
+                    is SharedPlace.At -> engine.plan(r.place)
+                    is SharedPlace.Query -> engine.locate(r.text)?.let(engine::plan) ?: run { page.value = Page.Search(query = r.text) }
+                    else -> page.value = Page.Search(query = s.name.orEmpty())
+                }
             }
         }
     }
@@ -110,6 +141,7 @@ class MainActivity : ComponentActivity() {
         val settings by engine.settings.flow.collectAsState()
         val current = page.value
         val preview = ui.preview
+        LaunchedEffect(ui.home, ui.work) { Shortcuts.publish(this@MainActivity, ui.home, ui.work) }
 
         val screen = when {
             ui.navigating -> "ride"
@@ -159,18 +191,32 @@ class MainActivity : ComponentActivity() {
                     onBack = { page.value = Page.Home },
                 )
                 else -> HomeScreen(
-                    ui, link, status, settings.imperial, locationOn.value, mirrorAllowed.value,
+                    ui, link, status, settings.imperial, locationOn.value, mirrorAllowed.value, pocketReady.value,
                     onSearch = { page.value = Page.Search() },
                     onPlace = { engine.plan(it) },
+                    onForget = { engine.forgetRecent(it) },
                     onSetSaved = { page.value = Page.Search(pick = it) },
                     onSettings = { page.value = Page.Settings },
                     onConnect = { RideService.start(this@MainActivity) },
                     onLocationSettings = { startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) },
                     onGrantMirror = ::openNotificationAccess,
+                    onAllowBackground = ::askToRunInBackground,
                 )
             }
         }
     }
 
     private fun openNotificationAccess() = startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+
+    /** Android's own yes/no for lifting battery limits; the settings list where the dialog doesn't exist. */
+    @SuppressLint("BatteryLife")
+    private fun askToRunInBackground() {
+        runCatching { startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))) }
+            .recoverCatching { startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }
+    }
+
+    private companion object {
+        /** Long enough for the splash icon (res/drawable/splash_icon.xml) to finish drawing: it starts before onCreate. */
+        const val SPLASH_MS = 700L
+    }
 }

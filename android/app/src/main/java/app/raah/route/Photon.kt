@@ -63,6 +63,23 @@ class Photon(private val baseUrl: String = "https://photon.komoot.io") {
             return close.sortedBy { Geo.distance(near, it.pos) } + far
         }
 
+        /**
+         * Google's matches (from [PhoneGeocoder]) first: it knows far more shops and addresses in India. Then
+         * OSM's, leaving out the ones Google already gave; a match also found in OSM keeps OSM's icon. Matches
+         * beyond riding distance go last, and namesakes in other cities only show when there's nothing nearby.
+         */
+        fun merge(google: List<Place>, osm: List<Place>, near: LatLon?, limit: Int = 10, rideableM: Double = 60_000.0,
+                  elsewhereM: Double = 150_000.0): List<Place> {
+            fun related(a: Place, b: Place) = a.name.contains(b.name, ignoreCase = true) || b.name.contains(a.name, ignoreCase = true)
+            fun same(a: Place, b: Place) = Geo.distance(a.pos, b.pos).let { d -> d < 40 || d < 150 && related(a, b) }
+            val all = google.map { g -> osm.firstOrNull { same(g, it) && related(g, it) }?.let { g.copy(kind = it.kind) } ?: g } +
+                osm.filter { o -> google.none { same(it, o) } }
+            if (near == null) return all.take(limit)
+            val (close, far) = all.partition { Geo.distance(near, it.pos) <= rideableM }
+            val shown = if (close.isEmpty()) far else close + far.filter { Geo.distance(near, it.pos) <= elsewhereM }
+            return shown.take(limit)
+        }
+
         /** OSM often maps one place twice (a node and its building, or both sides of a road): same name, metres
          *  apart. Keep the first. */
         fun dedupe(places: List<Place>, withinM: Double = 150.0): List<Place> {
@@ -82,12 +99,19 @@ class Photon(private val baseUrl: String = "https://photon.komoot.io") {
                 val street = listOfNotNull(p.opt("housenumber")?.toString(), p.optString("street").ifEmpty { null })
                     .joinToString(" ")
                 val name = p.optString("name").ifEmpty { street.ifEmpty { return@mapNotNull null } }
+                if (noise(p.optString("osm_key"), p.optString("osm_value"), name)) return@mapNotNull null
                 val detail = listOf(street, p.optString("locality"), p.optString("district"), p.optString("city"),
                     p.optString("state").takeIf { p.optString("city").isEmpty() } ?: "")
                     .filter { it.isNotEmpty() && !it.equals(name, ignoreCase = true) }.distinct().joinToString(", ")
                 Place(name, detail, LatLon(c.getDouble(1), c.getDouble(0)), kind(p.optString("osm_key"), p.optString("osm_value")))
             }
         }
+
+        /** Not somewhere to ride to: railway tracks ("Namma Metro - Reach 1") and bus stops named after their
+         *  routes ("KIA8: Electronic City => Kempegowda International Airport"). */
+        fun noise(key: String, value: String, name: String) =
+            key == "railway" && value in setOf("rail", "subway", "light_rail", "monorail", "tram", "narrow_gauge") ||
+                "=>" in name
 
         fun kind(key: String, value: String): PlaceKind = when {
             value in setOf("cafe", "coffee", "tea") -> PlaceKind.CAFE
@@ -121,7 +145,9 @@ class PlaceBook(private val prefs: android.content.SharedPreferences) {
     fun setWork(p: Place?) { work = p; save("work", p) }
 
     fun remember(p: Place) {
-        recent = (listOf(p) + recent.filterNot { it.name == p.name && Geo.distance(it.pos, p.pos) < 100 }).take(RECENT_MAX)
+        // One entry per spot, whatever it was called last time.
+        recent = (listOf(p) + recent.filterNot { Geo.distance(it.pos, p.pos) < 30 || it.name == p.name && Geo.distance(it.pos, p.pos) < 100 })
+            .take(RECENT_MAX)
         prefs.edit().putString("recent", JSONArray(recent.map { it.toJson() }).toString()).apply()
     }
 

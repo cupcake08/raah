@@ -15,11 +15,15 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- In a pocket: the CPU stays up through a ride, and the user can lift the phone's battery limits for Raah. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".RaahApp"
         android:allowBackup="false"
-        android:icon="@drawable/ic_raah"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="Raah"
         android:theme="@style/Theme.Raah">
 
@@ -27,6 +31,7 @@
             android:name=".ui.MainActivity"
             android:exported="true"
             android:launchMode="singleTask"
+            android:theme="@style/Theme.Raah.Starting"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
