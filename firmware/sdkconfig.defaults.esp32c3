@@ -1,0 +1,9 @@
+# Seeed XIAO ESP32C3: 4 MB flash.
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# The display takes GPIO20 and 21, the UART pins, so logs go over the native USB port.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# The C3 has about 64 KB less RAM than the S3. The simulator's LVGL peak is about 41 KB on a 64-bit host,
+# less with 32-bit pointers, so 48 KB still leaves headroom.
+CONFIG_LV_MEM_SIZE=49152

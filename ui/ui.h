@@ -38,6 +38,8 @@ void ui_show_toast(const char *text, uint32_t ms);
 void ui_show_sleep(void);
 /* Stops looping animations (e.g. while the backlight is off) so the CPU can sleep. */
 void ui_set_animations(bool enable);
+/* With the screen dimmed, the map glides in coarser steps, at most 4 frames a second. */
+void ui_set_calm(bool calm);
 
 #ifdef __cplusplus
 }

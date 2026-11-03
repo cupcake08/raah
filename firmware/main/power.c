@@ -5,17 +5,23 @@
 #include "app_events.h"
 #include "button_gpio.h"
 #include "driver/gpio.h"
-#include "driver/rtc_io.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "esp_sleep.h"
+#include "esp_system.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "iot_button.h"
 #include "sdkconfig.h"
+#include "soc/rtc_cntl_reg.h"
+#include "soc/soc_caps.h"
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+#include "driver/rtc_io.h"
+#endif
 
 static const char *TAG = "power";
 
@@ -26,6 +32,14 @@ static const char *TAG = "power";
 #define BATT_PERIOD_MS 30000
 #define NO_BATT_MV     2500    /* below this nothing is on the divider: running from USB, no cell fitted */
 #define LDR_PERIOD_MS  5000
+#if CONFIG_IDF_TARGET_ESP32C3
+#define LDR_FULL_MV    2500    /* the C3's ADC tops out about here */
+#else
+#define LDR_FULL_MV    3000
+#endif
+/* Held this much longer once the screen has gone dark (about 10 s from the press), the key restarts into
+ * USB download mode instead of sleeping: the XIAO's BOOT and RESET buttons are sealed in the case. */
+#define DOWNLOAD_HOLD_MS 6000
 
 static adc_oneshot_unit_handle_t adc;
 static adc_cali_handle_t cali_batt, cali_ldr;
@@ -103,9 +117,10 @@ static void sampler_task(void *arg)
     int ema_mv = -1;
     TickType_t last_batt = 0;
     for (bool first = true;; first = false) {
-        if (has_ldr) {
+        /* A thumb on the key can shadow the sensor. */
+        if (has_ldr && gpio_get_level(CONFIG_RAAH_PIN_BUTTON) != 0) {
             int mv = read_mv(ch_ldr, cali_ldr);
-            if (mv >= 0) atomic_store(&ambient, mv >= 3000 ? 100 : mv * 100 / 3000);
+            if (mv >= 0) atomic_store(&ambient, mv >= LDR_FULL_MV ? 100 : mv * 100 / LDR_FULL_MV);
         }
         if (has_batt && (first || xTaskGetTickCount() - last_batt >= pdMS_TO_TICKS(BATT_PERIOD_MS))) {
             last_batt = xTaskGetTickCount();
@@ -151,6 +166,10 @@ static void button_init(void)
 
 void power_init(void)
 {
+    /* Released from its deep-sleep hold, the pin would fall back to its reset function (UART TX on the C3,
+     * idle high) and light the backlight until the display driver takes it. */
+    gpio_set_level(CONFIG_RAAH_PIN_LCD_BL, CONFIG_RAAH_LCD_BL_ACTIVE_LOW);
+    gpio_set_direction(CONFIG_RAAH_PIN_LCD_BL, GPIO_MODE_OUTPUT);
     gpio_hold_dis(CONFIG_RAAH_PIN_LCD_BL);
     gpio_deep_sleep_hold_dis();
 
@@ -190,12 +209,25 @@ void power_deep_sleep(void)
     gpio_deep_sleep_hold_en();
 
     /* Don't wake straight back up while the long press is still held. */
-    while (gpio_get_level(CONFIG_RAAH_PIN_BUTTON) == 0) vTaskDelay(pdMS_TO_TICKS(20));
+    for (int64_t t0 = esp_timer_get_time(); gpio_get_level(CONFIG_RAAH_PIN_BUTTON) == 0;) {
+        if (esp_timer_get_time() - t0 > DOWNLOAD_HOLD_MS * 1000LL) {
+            ESP_LOGW(TAG, "restarting into USB download mode");
+            REG_WRITE(RTC_CNTL_OPTION1_REG, RTC_CNTL_FORCE_DOWNLOAD_BOOT);
+            esp_restart();
+        }
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
     vTaskDelay(pdMS_TO_TICKS(50));
 
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
     rtc_gpio_pullup_en(CONFIG_RAAH_PIN_BUTTON);
     rtc_gpio_pulldown_dis(CONFIG_RAAH_PIN_BUTTON);
-    esp_sleep_enable_ext1_wakeup_io(1ULL << CONFIG_RAAH_PIN_BUTTON, ESP_EXT1_WAKEUP_ANY_LOW);
+    ESP_ERROR_CHECK(esp_sleep_enable_ext1_wakeup_io(1ULL << CONFIG_RAAH_PIN_BUTTON, ESP_EXT1_WAKEUP_ANY_LOW));
+#else
+    /* The C3 has no RTC IO: GPIO0-5 wake it directly, with the internal pull-up kept through sleep. */
+    ESP_ERROR_CHECK(esp_sleep_enable_gpio_wakeup_on_hp_periph_powerdown(1ULL << CONFIG_RAAH_PIN_BUTTON,
+                                                                        ESP_GPIO_WAKEUP_GPIO_LOW));
+#endif
     ESP_LOGI(TAG, "deep sleep");
     esp_deep_sleep_start();
 }

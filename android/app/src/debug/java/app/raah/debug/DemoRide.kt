@@ -23,9 +23,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Rides a route at a desk by standing in for the GPS (debug builds only). With Location on, fixes go
- * through a mock GPS provider, so the app must be the mock location app first:
+ * through a mock GPS provider when the app is the mock location app:
  *   adb shell appops set app.raah android:mock_location allow
- * With Location off they are handed to the app directly.
+ * Otherwise they are handed to the app directly, with the phone's own fixes switched off until STOP.
  *
  *   adb shell am broadcast -n app.raah/.debug.DemoRide -a app.raah.debug.FIX  --ed lat 12.9716 --ed lon 77.6412
  *   adb shell am broadcast -n app.raah/.debug.DemoRide -a app.raah.debug.GO   --es query "Indiranagar metro"
@@ -34,7 +34,7 @@ import kotlinx.coroutines.withTimeoutOrNull
  *
  * FIX holds a position, GO searches and starts navigating to the first result, RIDE follows the
  * current route from the nearest point (optionally leaving it sideways after detour_at metres, then
- * riding the route the app reroutes onto), STOP hands the GPS back.
+ * riding the route the app reroutes onto), STOP ends the ride and hands the GPS back.
  */
 class DemoRide : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -133,14 +133,19 @@ private object Sim {
 
     fun stop(ctx: Context) {
         job?.cancel()
+        RaahApp.engine(ctx).stopNavigation()     // a demo route followed by the real GPS would only reroute
         runCatching { lm(ctx).removeTestProvider(GPS) }
         added = false
+        if (direct) {
+            direct = false
+            RaahApp.engine(ctx).startLocation()
+        }
         Log.i(TAG, "stopped")
     }
 
     private fun lm(ctx: Context) = ctx.getSystemService(LocationManager::class.java)
 
-    /** Through the mock GPS provider when Location is on, else straight into the app (Location off). */
+    /** Through the mock GPS provider when the app may mock it, else straight into the app. */
     private fun push(ctx: Context, p: LatLon, mps: Double, bearing: Double) {
         val lm = lm(ctx)
         val loc = Location(GPS).apply {
@@ -151,7 +156,7 @@ private object Sim {
             time = System.currentTimeMillis()
             elapsedRealtimeNanos = SystemClock.elapsedRealtimeNanos()
         }
-        if (!lm.isLocationEnabled) {
+        if (!lm.isLocationEnabled || direct) {
             RaahApp.engine(ctx).onLocation(loc)
             return
         }
@@ -159,12 +164,16 @@ private object Sim {
             if (!added) addProvider(lm)
             lm.setTestProviderLocation(GPS, loc)
         } catch (e: SecurityException) {
-            Log.e(TAG, "not the mock location app: adb shell appops set app.raah android:mock_location allow")
-            job?.cancel()
+            // The phone's real fixes would pull the rider back and forth, so they stop until STOP.
+            Log.w(TAG, "not the mock location app, so the fixes go straight to the app")
+            direct = true
+            RaahApp.engine(ctx).stopLocation()
+            RaahApp.engine(ctx).onLocation(loc)
         }
     }
 
     private var added = false
+    private var direct = false
 
     private fun addProvider(lm: LocationManager) {
         runCatching { lm.removeTestProvider(GPS) }

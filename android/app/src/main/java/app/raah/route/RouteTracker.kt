@@ -61,18 +61,19 @@ class RouteTracker(val route: Route) {
         val snapped = LatLon(a.lat + bestT * (b.lat - a.lat), a.lon + bestT * (b.lon - a.lon))
         val along = cum[bestSeg] + bestT * (cum[bestSeg + 1] - cum[bestSeg])
 
-        // Next maneuver: the first one whose point is still ahead (step 0 is the departure).
+        // Next maneuver: the first one whose point is still ahead. Step 0 is the departure, which is still
+        // "ahead" while the rider waits at (or behind) the start of the route: then the next is step 1.
         var stepIdx = route.steps.indexOfFirst { it.beginIdx > bestSeg || (it.beginIdx == bestSeg && bestT < 0.01) }
-            .let { if (it <= 0) route.steps.lastIndex.coerceAtLeast(0) else it }
-        if (route.steps.getOrNull(stepIdx)?.beginIdx == 0 && route.steps.size > 1) stepIdx = 1
+            .let { if (it < 0) route.steps.lastIndex else it }.coerceIn(0, maxOf(0, route.steps.lastIndex))
+        while (stepIdx < route.steps.lastIndex && route.steps[stepIdx].beginIdx == 0) stepIdx++
         val step = route.steps[stepIdx]
         val distToTurn = (cum[step.beginIdx.coerceIn(0, cum.lastIndex)] - along).coerceAtLeast(0.0)
         val distLeft = (total - along).coerceAtLeast(0.0)
 
         // Time: what's left of the current step at its own pace, plus the steps after it.
-        val cur = route.steps[stepIdx - 1]
-        val curFrac = if (cur.lengthM > 1) (distToTurn / cur.lengthM).coerceIn(0.0, 1.0) else 0.0
-        val timeLeft = cur.timeS * curFrac + route.steps.drop(stepIdx).sumOf { it.timeS }
+        val cur = route.steps.getOrNull(stepIdx - 1)
+        val curFrac = if (cur != null && cur.lengthM > 1) (distToTurn / cur.lengthM).coerceIn(0.0, 1.0) else 0.0
+        val timeLeft = (cur?.timeS ?: 0.0) * curFrac + route.steps.drop(stepIdx).sumOf { it.timeS }
 
         return Progress(
             snapped = snapped,

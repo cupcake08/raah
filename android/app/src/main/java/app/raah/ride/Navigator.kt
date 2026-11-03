@@ -184,8 +184,9 @@ class Navigator(
             timeLeftS = p.timeLeftS.toLong(),
             etaMinOfDay = eta.hour * 60 + eta.minute,
             speedKmh = speedKmh,
-            primary = if (arrived || step.maneuver == Maneuver.ARRIVE) destination else step.street.ifEmpty { step.instruction },
-            secondary = if (arrived) "" else step.instruction,
+            // An unnamed road leaves the instruction ("Turn left") as the headline, once.
+            primary = if (arrived || step.maneuver == Maneuver.ARRIVE) destination else step.street.ifEmpty { step.instruction.trimEnd('.') },
+            secondary = if (arrived || step.street.isEmpty()) "" else step.instruction.trimEnd('.'),
         )
         lastState = state
         sink.state(NavProtocol.encodeState(state))

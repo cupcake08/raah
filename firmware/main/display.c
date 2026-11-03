@@ -44,7 +44,6 @@ static const char *TAG = "display";
 
 #define H_RES       CONFIG_RAAH_LCD_H_RES
 #define V_RES       CONFIG_RAAH_LCD_V_RES
-#define DRAW_LINES  20      /* 2 × 9.6 KB DMA buffers: internal RAM also holds two map buffers */
 #define BL_TIMER    LEDC_TIMER_0
 #define BL_CHANNEL  LEDC_CHANNEL_0
 #define BL_RES      LEDC_TIMER_10_BIT
@@ -79,6 +78,7 @@ static const ili9341_lcd_init_cmd_t ili9341_init[] = {
 #endif
 
 static esp_lcd_panel_handle_t panel;
+static lv_display_t *disp;
 static int bl_pct = -1;
 static bool panel_asleep;
 
@@ -101,7 +101,6 @@ static int64_t frame_t0;
 uint64_t display_px, display_flushes, display_swap_cycles;
 bool display_skip_spi;
 uint64_t display_strip_us[DISPLAY_STRIPS];
-_Static_assert(DRAW_LINES == 20, "DISPLAY_STRIPS assumes 20-row strips");
 static int64_t strip_t0;
 #endif
 
@@ -123,7 +122,7 @@ static void flush_cb(lv_display_t *disp, const lv_area_t *area, uint8_t *px)
 {
 #if CONFIG_RAAH_BENCH
     int64_t now = esp_timer_get_time();
-    display_strip_us[area->y1 / DRAW_LINES] += now - strip_t0;
+    display_strip_us[area->y1 / DISPLAY_LINES] += now - strip_t0;
     uint32_t c0 = esp_cpu_get_cycle_count();
 #endif
     /* The panel wants big-endian RGB565. */
@@ -179,6 +178,10 @@ void display_set_backlight(int pct, uint32_t fade_ms)
     if (pct > 0 && panel_asleep) {
         esp_lcd_panel_disp_sleep(panel, false);
         panel_asleep = false;
+        /* Nothing was drawn while dark: bring the panel up to date before it lights. */
+        lv_display_enable_invalidation(disp, true);
+        lv_obj_invalidate(lv_screen_active());
+        lv_refr_now(disp);
     }
     /* Gamma 2.2 so equal steps look equal; keep a visible floor above 0. */
     uint32_t duty = pct ? (uint32_t)lroundf(powf(pct / 100.f, 2.2f) * BL_MAX_DUTY) : 0;
@@ -194,6 +197,8 @@ void display_set_backlight(int pct, uint32_t fade_ms)
     if (pct == 0 && !panel_asleep) {
         esp_lcd_panel_disp_sleep(panel, true);
         panel_asleep = true;
+        /* A dark panel shows nothing, so map moves and clock ticks draw nothing until it lights again. */
+        lv_display_enable_invalidation(disp, false);
     }
     bl_pct = pct;
 }
@@ -213,13 +218,13 @@ void display_init(void)
         .miso_io_num = -1,
         .quadwp_io_num = -1,
         .quadhd_io_num = -1,
-        .max_transfer_sz = H_RES * DRAW_LINES * sizeof(uint16_t),
+        .max_transfer_sz = H_RES * DISPLAY_LINES * sizeof(uint16_t),
     };
     ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &bus, SPI_DMA_CH_AUTO));
 
     lv_init();
     lv_tick_set_cb(tick_ms);
-    lv_display_t *disp = lv_display_create(H_RES, V_RES);
+    disp = lv_display_create(H_RES, V_RES);
 
     esp_lcd_panel_io_handle_t io;
     esp_lcd_panel_io_spi_config_t io_cfg = {
@@ -259,7 +264,7 @@ void display_init(void)
     ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel, CONFIG_RAAH_LCD_GAP_X, CONFIG_RAAH_LCD_GAP_Y));
     ESP_ERROR_CHECK(esp_lcd_panel_disp_on_off(panel, true));
 
-    size_t buf_sz = H_RES * DRAW_LINES * sizeof(uint16_t);
+    size_t buf_sz = H_RES * DISPLAY_LINES * sizeof(uint16_t);
     void *b1 = heap_caps_malloc(buf_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     void *b2 = heap_caps_malloc(buf_sz, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL);
     assert(b1 && b2);

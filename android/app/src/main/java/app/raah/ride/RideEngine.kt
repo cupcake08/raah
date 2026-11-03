@@ -3,10 +3,14 @@ package app.raah.ride
 import android.annotation.SuppressLint
 import android.content.Context
 import android.location.Location
-import android.location.LocationListener
 import android.location.LocationManager
-import android.os.Looper
+import android.os.Build
+import android.os.SystemClock
 import android.util.Log
+import androidx.core.content.ContextCompat
+import androidx.core.location.LocationListenerCompat
+import androidx.core.location.LocationManagerCompat
+import androidx.core.location.LocationRequestCompat
 import app.raah.ble.RaahLink
 import app.raah.geo.LatLon
 import app.raah.geo.Geo
@@ -15,15 +19,19 @@ import app.raah.map.Road
 import app.raah.map.RoadSource
 import app.raah.proto.MapProtocol
 import app.raah.proto.NavProtocol
+import app.raah.route.PhoneGeocoder
 import app.raah.route.Photon
 import app.raah.route.Place
 import app.raah.route.PlaceBook
+import app.raah.route.SharedPlace
 import app.raah.route.Route
 import app.raah.route.Valhalla
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -43,6 +51,8 @@ class RideEngine(private val context: Context) {
         val route: Route? = null,
         val nav: NavProtocol.NavState? = null,
         val mirroring: Boolean = false,
+        /** Google Maps' arrow for the mirrored turn, as the device draws it: an alpha mask, ICON_PX square. */
+        val mirrorIcon: ByteArray? = null,
         val error: String? = null,
         val lastFix: LatLon? = null,
         /** A destination picked but not started yet: the route to look over before riding. */
@@ -67,6 +77,7 @@ class RideEngine(private val context: Context) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val valhalla = Valhalla()
     private val photon = Photon()
+    private val geocoder = PhoneGeocoder(context)
     private val roads = RoadSource(OpenFreeMapTiles(context.cacheDir))
     private val sentIcons = HashSet<Long>()
 
@@ -85,6 +96,8 @@ class RideEngine(private val context: Context) {
     private val maps = MapFeed(roads, sink) { work -> scope.launch(Dispatchers.IO) { runCatching(work).onFailure { Log.w(TAG, "map", it) } } }
     private var navigator: Navigator? = null
     private var lastFix: Fix? = null
+    /** Where the phone last was, however long ago: enough to aim a search before the first fix comes in. */
+    private var lastKnownPos: LatLon? = null
     private var rerouteJob: Job? = null
     private var arriveJob: Job? = null
     private var planJob: Job? = null
@@ -118,17 +131,26 @@ class RideEngine(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun startLocation() {
         val lm = context.getSystemService(LocationManager::class.java) ?: return
-        lm.removeUpdates(locationListener)
-        lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, locationListener, Looper.getMainLooper())
-        (lm.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER))
-            ?.let { onLocation(it) }
+        LocationManagerCompat.removeUpdates(lm, locationListener)
+        // Fused (Android 12+) blends GPS with Wi-Fi and cell positions, so the phone knows where it is indoors
+        // too, where GPS alone never locks; older phones get the network position until GPS does.
+        val providers = if (Build.VERSION.SDK_INT >= 31 && lm.hasProvider(LocationManager.FUSED_PROVIDER))
+            listOf(LocationManager.FUSED_PROVIDER) else listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+        val request = LocationRequestCompat.Builder(1000L).setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY).build()
+        for (p in providers.filter { it in lm.allProviders }) {
+            LocationManagerCompat.requestLocationUpdates(lm, p, request, ContextCompat.getMainExecutor(context), locationListener)
+        }
+        val known = lm.allProviders.mapNotNull { runCatching { lm.getLastKnownLocation(it) }.getOrNull() }
+            .maxByOrNull { it.elapsedRealtimeNanos } ?: return
+        lastKnownPos = LatLon(known.latitude, known.longitude)
+        if (SystemClock.elapsedRealtimeNanos() - known.elapsedRealtimeNanos < LAST_KNOWN_FRESH_NS) onLocation(known)
     }
 
     fun stopLocation() {
-        context.getSystemService(LocationManager::class.java)?.removeUpdates(locationListener)
+        context.getSystemService(LocationManager::class.java)?.let { LocationManagerCompat.removeUpdates(it, locationListener) }
     }
 
-    private val locationListener = LocationListener { onLocation(it) }
+    private val locationListener = LocationListenerCompat { onLocation(it) }
 
     /** Every GPS fix comes through here (the debug ride simulator calls it directly too). */
     internal fun onLocation(l: Location) {
@@ -139,6 +161,10 @@ class RideEngine(private val context: Context) {
             bearingDeg = if (l.hasBearing()) l.bearing else null,
             timeMs = System.currentTimeMillis(),
         )
+        // A Wi-Fi or cell position, hundreds of metres out, helps a search but mustn't drag a ride off a GPS track.
+        lastFix?.let { prev ->
+            if (fix.accuracyM > COARSE_M && prev.accuracyM <= COARSE_M && fix.timeMs - prev.timeMs < 10_000) return
+        }
         val first = lastFix == null
         lastFix = fix
         _ui.value = _ui.value.copy(lastFix = fix.pos)
@@ -163,8 +189,43 @@ class RideEngine(private val context: Context) {
 
     // ---- navigation ----
 
-    /** Throws when the search server can't be reached; the search screen shows that inline. */
-    suspend fun search(query: String): List<Place> = withContext(Dispatchers.IO) { photon.search(query, lastFix?.pos) }
+    /**
+     * Asks Google (the phone's geocoder) and OpenStreetMap (Photon) together and merges their answers. A pasted
+     * Google Maps link or coordinates come back as that one place. Throws when neither answers; the search
+     * screen shows that inline.
+     */
+    suspend fun search(query: String): List<Place> = withContext(Dispatchers.IO) {
+        var text = query
+        when (val shared = SharedPlace.parse(query, null)) {
+            is SharedPlace.At -> return@withContext listOf(shared.place)
+            is SharedPlace.Link -> when (val r = SharedPlace.resolve(shared)) {
+                is SharedPlace.At -> return@withContext listOf(r.place)
+                is SharedPlace.Query -> text = r.text
+                else -> return@withContext emptyList()
+            }
+            else -> {}
+        }
+        val near = lastFix?.pos ?: lastKnownPos
+        coroutineScope {
+            val google = async { runCatching { geocoder.search(text, near) } }
+            val osm = async { runCatching { photon.search(text, near) } }
+            val g = google.await()
+            val o = osm.await()
+            if (g.isFailure && o.isFailure) throw o.exceptionOrNull()!!
+            Photon.merge(g.getOrDefault(emptyList()), o.getOrDefault(emptyList()), near)
+        }
+    }
+
+    /**
+     * Where a place Google Maps shared by name and address (its links mostly carry no coordinates now) is,
+     * from Google's geocoder. Null for a bare name, which could be anywhere: that one goes to the search screen.
+     */
+    suspend fun locate(text: String): Place? = withContext(Dispatchers.IO) {
+        val (name, address) = SharedPlace.nameAndAddress(text)
+        if (address.isEmpty()) return@withContext null
+        runCatching { geocoder.search(text, lastFix?.pos ?: lastKnownPos, limit = 1) }.getOrNull()?.firstOrNull()
+            ?.copy(name = name, detail = address)
+    }
 
     /** Routes to [place] for a look before riding; [start] begins the ride. Waits for a GPS fix if there is none. */
     fun plan(place: Place) {
@@ -264,7 +325,7 @@ class RideEngine(private val context: Context) {
 
     fun onMirror(state: NavProtocol.NavState?, icon: ByteArray?) {
         if (navigator != null) return       // our own route wins
-        _ui.value = _ui.value.copy(mirroring = state != null, nav = state)
+        _ui.value = _ui.value.copy(mirroring = state != null, nav = state, mirrorIcon = icon)
         if (!link.ready) return
         if (state == null) {
             sink.state(NavProtocol.encodeState(NavProtocol.NavState()))
@@ -292,5 +353,9 @@ class RideEngine(private val context: Context) {
         private const val TAG = "RideEngine"
         private const val ARRIVED_END_MS = 60_000L
         private const val PREVIEW_ROADS_MAX_M = 6_000.0
+        /** Fixes vaguer than this are Wi-Fi or cell positions rather than GPS. */
+        private const val COARSE_M = 50f
+        /** A last-known position younger than this is good enough to plan a route from. */
+        private const val LAST_KNOWN_FRESH_NS = 10 * 60 * 1_000_000_000L
     }
 }

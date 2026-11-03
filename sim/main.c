@@ -39,7 +39,7 @@ static int shot_count;
 static uint32_t tick(void) { return fake_ms; }
 
 /* Same strip height as firmware/main/display.c, so the work per frame matches the device. */
-#define DRAW_LINES 20
+#define DRAW_LINES 40
 static uint16_t strip[412 * DRAW_LINES];
 static uint64_t px_flushed, flushes;
 
@@ -290,7 +290,9 @@ static uint64_t now_ns(void)
 static int bench(void)
 {
     ui_set_link(true);
-    ui_bench_run(&(ui_bench_env_t){.now = now_ns, .per_us = 1000, .px = &px_flushed, .flushes = &flushes, .run = run});
+    ui_bench_env_t env = {.now = now_ns, .per_us = 1000, .px = &px_flushed, .flushes = &flushes, .run = run};
+    ui_bench_run(&env);
+    ui_bench_parts(&env);
     return 0;
 }
 

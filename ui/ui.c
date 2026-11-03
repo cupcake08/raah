@@ -33,6 +33,8 @@
 #define POSE_MAX_MS    1200   /* longest glide between two poses */
 #define POSE_JUMP_PX   120    /* further than this, the map cuts instead of gliding */
 #define GLIDE_STEP_PX  2.f    /* least on-screen change worth a frame mid-glide */
+#define CALM_STEP_PX   6.f    /* ...with the screen dimmed, where nobody is watching closely */
+#define CALM_FRAME_MS  250    /* ...and no more than 4 of them a second */
 
 typedef struct {
     lv_obj_t *num, *unit;
@@ -40,7 +42,7 @@ typedef struct {
 
 static struct {
     int32_t w, h;
-    bool imperial, use_24h, anims;
+    bool imperial, use_24h, anims, calm;
     bool connected, sleeping;
     nav_state_t nav;
     uint32_t step_key, step_start;
@@ -67,7 +69,7 @@ static struct {
     pair_t map_dist;
     bool round, has_map, has_pose, prefer_cards;
     map_view_t pose, pose_from, pose_to, pose_drawn;   /* now, the glide between the last two from the phone */
-    uint32_t pose_t0, pose_ms, pose_rx;
+    uint32_t pose_t0, pose_ms, pose_rx, pose_drawn_at;
     bool pose_cut;
     lv_timer_t *pose_timer;
     /* sleep */
@@ -634,9 +636,16 @@ static void build_map(void)
     lv_obj_set_size(ui.map, ui.w, ui.h);
 
     if (!ui.round) {
-        /* The map runs up under the status bar; a fade keeps the clock and speed legible over it. */
+        /* The status bar sits on solid black, so a moving map never redraws its text, and the map fades
+         * in below it. */
+        lv_obj_t *band = box(ui.scr_map);
+        lv_obj_set_size(band, ui.w, SB_H);
+        lv_obj_set_style_bg_opa(band, LV_OPA_COVER, 0);
+        lv_obj_set_style_bg_color(band, UI_C_BG, 0);
+        ui_map_set_top_cover(ui.map, SB_H);
         lv_obj_t *top = box(ui.scr_map);
-        lv_obj_set_size(top, ui.w, MAP_FADE_H);
+        lv_obj_set_pos(top, 0, SB_H);
+        lv_obj_set_size(top, ui.w, MAP_FADE_H - SB_H);
         lv_obj_set_style_bg_opa(top, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(top, UI_C_BG, 0);
         lv_obj_set_style_bg_grad_color(top, UI_C_BG, 0);
@@ -844,15 +853,17 @@ static void pose_tick(lv_timer_t *t)
         ui.pose = *b;
         lv_timer_pause(t);
     } else {
+        if (ui.calm && lv_tick_elaps(ui.pose_drawn_at) < CALM_FRAME_MS) return;
         float k = (float)el / (float)ui.pose_ms;
         float dh = fmodf(b->heading - a->heading + 540.f, 360.f) - 180.f;   /* the short way round */
         ui.pose.x = a->x + (b->x - a->x) * k;
         ui.pose.y = a->y + (b->y - a->y) * k;
         ui.pose.heading = fmodf(a->heading + dh * k + 360.f, 360.f);
         ui.pose.m_per_px = a->m_per_px + (b->m_per_px - a->m_per_px) * k;
-        if (view_shift_px(&ui.pose_drawn, &ui.pose) < GLIDE_STEP_PX) return;
+        if (view_shift_px(&ui.pose_drawn, &ui.pose) < (ui.calm ? CALM_STEP_PX : GLIDE_STEP_PX)) return;
     }
     ui.pose_drawn = ui.pose;
+    ui.pose_drawn_at = lv_tick_get();
     apply_view();
 }
 
@@ -1091,6 +1102,7 @@ void ui_set_map_pose(float x, float y, float heading, float m_per_px)
         /* A new map (its own frame), the first pose, or a leap: no glide that would mean anything. */
         ui.pose_cut = false;
         ui.pose = ui.pose_to = ui.pose_drawn = to;
+        ui.pose_drawn_at = ui.pose_rx;
         if (ui.pose_timer) lv_timer_pause(ui.pose_timer);
         apply_view();
     } else {
@@ -1194,6 +1206,11 @@ void ui_show_sleep(void)
     ui.sleeping = true;
     lv_obj_set_hidden(ui.toast, true);
     refresh();
+}
+
+void ui_set_calm(bool calm)
+{
+    ui.calm = calm;
 }
 
 void ui_set_animations(bool enable)

@@ -1,6 +1,10 @@
 package app.raah.ui
 
+import android.content.Intent
+import android.location.LocationManager
+import android.provider.Settings
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +30,7 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.GpsNotFixed
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material.icons.rounded.WifiOff
 import androidx.compose.material.icons.rounded.Work
@@ -48,6 +53,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -73,7 +79,8 @@ fun SearchScreen(
     onPick: (Place) -> Unit,
     onBack: () -> Unit,
 ) {
-    var query by remember { mutableStateOf(initialQuery) }
+    // Keyed, so a place shared in while the search is open replaces what was typed.
+    var query by remember(initialQuery) { mutableStateOf(initialQuery) }
     /** null until a query has been answered; the previous answer stays up while the next one loads. */
     var places by remember { mutableStateOf<List<Place>?>(null) }
     var loading by remember { mutableStateOf(false) }
@@ -111,7 +118,7 @@ fun SearchScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.weight(1f)) {
-                if (query.isEmpty()) Text("Search a place or address", style = MaterialTheme.typography.bodyLarge, color = Raah.Text3)
+                if (query.isEmpty()) Text("Search a place, address or link", style = MaterialTheme.typography.bodyLarge, color = Raah.Text3)
                 BasicTextField(
                     query, { query = it }, Modifier.fillMaxWidth().focusRequester(focus), singleLine = true,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = Raah.Text),
@@ -128,10 +135,16 @@ fun SearchScreen(
             if (loading) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Raah.Go, trackColor = Raah.Surface)
         }
         if (ui.lastFix == null) {
-            Row(Modifier.padding(horizontal = 24.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            val context = LocalContext.current
+            // Without Wi-Fi positioning (Google Location Accuracy), indoors there's no position at all: GPS needs the sky.
+            val wifiOff = remember { context.getSystemService(LocationManager::class.java)?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == false }
+            Row(Modifier.fillMaxWidth().clickable(enabled = wifiOff) { context.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) }
+                .padding(horizontal = 24.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Rounded.GpsNotFixed, null, Modifier.size(16.dp), tint = Raah.Near)
                 Spacer(Modifier.width(6.dp))
-                Text("No GPS fix yet, so results aren't sorted by distance", style = MaterialTheme.typography.bodySmall, color = Raah.Text2)
+                Text(if (wifiOff) "No location indoors. Tap to turn on Google Location Accuracy, so results start near you."
+                    else "No location fix yet, so results aren't sorted by distance",
+                    style = MaterialTheme.typography.bodySmall, color = Raah.Text2)
             }
         }
 
@@ -142,12 +155,13 @@ fun SearchScreen(
             when {
                 offline != null && query.trim().length >= 2 -> item {
                     Empty(Icons.Rounded.WifiOff, if (offline) "No connection" else "Search isn't answering",
-                        "Raah searches OpenStreetMap online.", "Try again") { attempt++ }
+                        "Raah searches Google and OpenStreetMap online.", "Try again") { attempt++ }
                 }
                 found != null -> {
                     if (found.isEmpty() && !loading) item { Empty(Icons.Rounded.SearchOff, "Nothing found for “${query.trim()}”",
                         "Try the street or area name, or check the spelling.") }
                     items(found) { p -> PlaceRow(p.kind.icon(), p.name, p.detail, distance(p), Raah.Text2) { onPick(p) } }
+                    if (!loading || found.isNotEmpty()) item { GoogleMapsRow(query.trim()) }
                 }
                 else -> {
                     if (showSaved) {
@@ -160,8 +174,10 @@ fun SearchScreen(
                         item { SectionLabel("Recent", Modifier.padding(start = 8.dp)) }
                         items(ui.recent) { p -> PlaceRow(Icons.Rounded.History, p.name, p.detail, distance(p)) { onPick(p) } }
                     }
+                    item { GoogleMapsRow("") }
                     item {
-                        Text("Tip: in Google Maps, share a place to Raah, or paste coordinates like 12.9719, 77.6412.",
+                        Text("Tip: paste a Google Maps link or coordinates like 12.9719, 77.6412 in the box. In Google Maps' " +
+                            "share sheet, long-press Raah and choose Pin to keep it first.",
                             Modifier.padding(horizontal = 12.dp, vertical = 16.dp), style = MaterialTheme.typography.bodySmall,
                             color = Raah.Text3)
                     }
@@ -169,6 +185,14 @@ fun SearchScreen(
             }
         }
     }
+}
+
+/** For places Raah can't find: Google Maps' own search, and Share › Raah brings the place back. */
+@Composable
+private fun GoogleMapsRow(query: String) {
+    val context = LocalContext.current
+    PlaceRow(Icons.Rounded.Map, if (query.isEmpty()) "Find it in Google Maps" else "Search Google Maps for “$query”",
+        "Then tap Share › Raah to ride there", tint = Raah.Link) { Shortcuts.openGoogleMaps(context, query) }
 }
 
 @Composable

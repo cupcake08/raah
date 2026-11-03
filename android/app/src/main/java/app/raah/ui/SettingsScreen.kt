@@ -146,7 +146,7 @@ fun SettingsScreen(
             }
 
             SectionLabel("About")
-            Text("Raah $version\nRouting © Valhalla / FOSSGIS · Search © Photon (Komoot) · Maps © OpenStreetMap contributors, " +
+            Text("Raah $version\nRouting © Valhalla / FOSSGIS · Search © Google, Photon (Komoot) · Maps © OpenStreetMap contributors, " +
                 "OpenFreeMap · Barlow typeface, SIL Open Font License",
                 Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.bodySmall, color = Raah.Text3)
             Spacer(Modifier.height(24.dp))

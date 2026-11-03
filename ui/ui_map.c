@@ -36,6 +36,7 @@ typedef struct {
     int32_t route_lo, route_hi;     /* route points spanning every visible route segment */
     lv_obj_t *cover;                /* opaque rounded box over the map, left alone by map changes */
     int32_t cover_r;
+    int32_t top_cover;              /* rows under an opaque band at the top, likewise */
 } map_t;
 
 /*
@@ -215,9 +216,10 @@ static void map_draw(lv_event_t *e)
 
     lv_area_t a;
     lv_obj_get_coords(obj, &a);
+    const lv_area_t *clip = &layer->_clip_area;
+    if (clip->y2 < a.y1 + m->top_cover) return;     /* the status bar's own redraws, over the band */
     if (m->stale || vis_owner != m || memcmp(&a, &m->culled_for, sizeof(a))) cull(m, &a);
     const xform_t *t = &m->t;
-    const lv_area_t *clip = &layer->_clip_area;
 
     static lv_point_precise_t buf[256];
 
@@ -299,21 +301,24 @@ lv_obj_t *ui_map_create(lv_obj_t *parent)
 }
 
 /*
- * Invalidates the map, less the inside of the cover: the map under it would only be drawn over, and
- * redrawing the cover's own text costs about as much again. The strips beside it take in its rounded
- * corners, where the map shows through.
+ * Invalidates the map, less what is laid over it: the band at the top and the inside of the cover.
+ * The map under them would only be drawn over, and redrawing their text costs about as much again
+ * (on the chip, the status bar 10 ms a frame and the card 5 ms). The strips beside the cover take in
+ * its rounded corners, where the map shows through: one column a side, because each area that touches
+ * the card draws all of it again (four corner squares cost more than two columns).
  */
 static void repaint(lv_obj_t *obj, map_t *m)
 {
     lv_area_t a, c;
     lv_obj_get_coords(obj, &a);
+    a.y1 += m->top_cover;
     if (!m->cover || lv_obj_is_hidden(m->cover)) {
-        lv_obj_invalidate(obj);
+        lv_obj_invalidate_area(obj, &a);
         return;
     }
     lv_obj_get_coords(m->cover, &c);
     if (c.x1 < a.x1 || c.y1 < a.y1 || c.x2 > a.x2 || c.y2 > a.y2) {
-        lv_obj_invalidate(obj);
+        lv_obj_invalidate_area(obj, &a);
         return;
     }
     int32_t r = m->cover_r;
@@ -332,6 +337,12 @@ void ui_map_set_cover(lv_obj_t *obj, lv_obj_t *cover, int32_t radius)
     map_t *m = lv_obj_get_user_data(obj);
     m->cover = cover;
     m->cover_r = radius;
+}
+
+void ui_map_set_top_cover(lv_obj_t *obj, int32_t rows)
+{
+    map_t *m = lv_obj_get_user_data(obj);
+    m->top_cover = rows;
 }
 
 void ui_map_set_data(lv_obj_t *obj, const map_data_t *data)
