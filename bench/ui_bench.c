@@ -164,11 +164,11 @@ static void watch(lv_obj_t *o, const char *name)
 void ui_bench_parts(const ui_bench_env_t *e)
 {
     env = e;
-    /* The map screen as ui.c builds it: map, status bar band, top fade, card (icon, distance, unit,
-     * street), trip label; the status bar is on the top layer. */
+    /* The map screen as ui.c builds it: map, top fade, card (icon, distance, unit, street), trip label;
+     * the status bar is on the top layer. */
     lv_obj_t *scr = lv_screen_active(), *sb = lv_obj_get_child(lv_layer_top(), 0);
-    if (lv_obj_get_child_count(scr) < 4 || !sb) return;
-    lv_obj_t *map = lv_obj_get_child(scr, 0), *fade = lv_obj_get_child(scr, 2), *card = lv_obj_get_child(scr, 3);
+    if (lv_obj_get_child_count(scr) < 3 || !sb) return;
+    lv_obj_t *map = lv_obj_get_child(scr, 0), *fade = lv_obj_get_child(scr, 1), *card = lv_obj_get_child(scr, 2);
     lv_area_t c, s;
     lv_obj_get_coords(card, &c);
     lv_obj_get_coords(scr, &s);

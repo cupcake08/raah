@@ -636,16 +636,10 @@ static void build_map(void)
     lv_obj_set_size(ui.map, ui.w, ui.h);
 
     if (!ui.round) {
-        /* The status bar sits on solid black, so a moving map never redraws its text, and the map fades
-         * in below it. */
-        lv_obj_t *band = box(ui.scr_map);
-        lv_obj_set_size(band, ui.w, SB_H);
-        lv_obj_set_style_bg_opa(band, LV_OPA_COVER, 0);
-        lv_obj_set_style_bg_color(band, UI_C_BG, 0);
-        ui_map_set_top_cover(ui.map, SB_H);
+        /* The map runs up under the status bar; a fade keeps the clock and speed legible over it. With
+         * 40-row strips the status bar is drawn once a frame, so this costs about 2 ms of a riding frame. */
         lv_obj_t *top = box(ui.scr_map);
-        lv_obj_set_pos(top, 0, SB_H);
-        lv_obj_set_size(top, ui.w, MAP_FADE_H - SB_H);
+        lv_obj_set_size(top, ui.w, MAP_FADE_H);
         lv_obj_set_style_bg_opa(top, LV_OPA_COVER, 0);
         lv_obj_set_style_bg_color(top, UI_C_BG, 0);
         lv_obj_set_style_bg_grad_color(top, UI_C_BG, 0);
