@@ -56,9 +56,6 @@ void ui_map_set_route_color(lv_obj_t *map, lv_color_t c);
  * alone; whoever changes the box repaints it. */
 void ui_map_set_cover(lv_obj_t *map, lv_obj_t *cover, int32_t radius);
 
-/* Rows at the top of the map hidden under an opaque band (the status bar): map changes leave them alone. */
-void ui_map_set_top_cover(lv_obj_t *map, int32_t rows);
-
 #ifdef UI_MAP_STATS
 /* Work counters for the simulator's benchmark; compiled out of the firmware. */
 typedef struct {

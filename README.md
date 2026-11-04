@@ -48,7 +48,7 @@ The screen is read in a glance, in daylight, on a TN panel. Everything follows f
 * **One hero per screen.** The arrow and the distance are the largest things on the screen; the street name comes next; the trip figures and status are small.
 * **Names are never cut with "…".** A street name steps down a font size (26 → 22 → 18 px), then abbreviates street types ("Road" → "Rd", "toward" → "to"), then wraps to two lines before anything is dropped. Only text that fits none of those gets dots. The map card keeps its size: a long name gets a smaller distance (64 → 44 px) and a two-line name, and the longest names move under the arrow, across the full width of the card.
 * **The map is the hero of the map screen.** The turn card floats over the road already ridden, which the map would otherwise show behind the rider. The rider chevron sits just above the card, so nearly the whole map is road ahead.
-* **Repaint only what moves.** A map change repaints around the card, never inside it, and never under the status bar, which sits on a solid band with the map fading in below it. Each strip draws only the roads that cross it. While gliding, a frame is drawn only when the view moves by 2 px or more; with the screen dimmed, 6 px and at most 4 frames a second. A dark screen draws nothing, and is redrawn once before it lights.
+* **Repaint only what moves.** A map change repaints around the card, never inside it. The map runs on under the status bar, behind a fade. Each strip draws only the roads that cross it. While gliding, a frame is drawn only when the view moves by 2 px or more; with the screen dimmed, 6 px and at most 4 frames a second. A dark screen draws nothing, and is redrawn once before it lights.
 
 A round 412×412 layout of the map screen also exists (`docs/screens/round_*.png`) in case a round panel is ever used. The ILI9341 build does not need it.
 
@@ -210,8 +210,8 @@ case/      3D-printable enclosure and handlebar mount (Fusion 360 script, STEP/S
 ## Status
 
 * Runs on the Edgehax S3 Pro (ESP32-S3-WROOM-1 N16R8) with an ILI9341 panel; the Android app connects to it over BLE. The XIAO ESP32C3 build compiles but hasn't run on a board yet. The numbers below are from the S3.
-* Frame time on the chip (160 MHz, SPI 40 MHz) for the benchmark's riding frame: **61 ms**, down from 96 ms. Rides on the desk average 33–53 ms a frame. A standstill with GPS jitter costs 1.8 ms and draws no pixels. The firmware logs a frame-time line every 10 s while the screen changes (`ui: N frames …, backlight N%`), and `screen on` / `screen off`.
-* Where the 35 ms went, measured per object on the chip (`ui_bench_parts`):
+* Frame time on the chip (160 MHz, SPI 40 MHz) for the benchmark's riding frame: **63 ms**, down from 96 ms. Rides on the desk average 33–53 ms a frame. A standstill with GPS jitter costs 1.8 ms and draws no pixels. The firmware logs a frame-time line every 10 s while the screen changes (`ui: N frames …, backlight N%`), and `screen on` / `screen off`.
+* Where the 33 ms went, measured per object on the chip (`ui_bench_parts`):
 
   | Change | Riding frame |
   |---|---|
@@ -219,6 +219,7 @@ case/      3D-printable enclosure and handlebar mount (Fusion 360 script, STEP/S
   | Status bar on a solid band, so map frames skip its text (it cost 9.6 ms a frame) | 88 ms |
   | Circle cache 4 → 16 slots: round caps, card corners and arrow strokes use about a dozen radii | 76 ms |
   | 40-row strips instead of 20: each strip redraws every object crossing it (+19 KB internal RAM, 35 KB left) | 61 ms |
+  | Status bar back over the map, behind its fade: with 40-row strips its text is drawn once a frame, not twice | 63 ms |
 
   Repainting the card's four corners as squares instead of two side columns made frames slower: each area touching the card redraws all of it.
 * While cruising with the screen dimmed, the CPU draws for about 5–8 % of the time (14–21 frames per 10 s at 33–37 ms), against about 19 % before. Near a turn, at full brightness, the glide gets every frame it can (up to about 10 a second).
